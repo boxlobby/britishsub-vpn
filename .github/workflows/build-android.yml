@@ -90,6 +90,7 @@ jobs:
           }
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'com.squareup.okhttp3:okhttp:4.12.0'
           }
           EOF
 
@@ -139,12 +140,21 @@ jobs:
           import android.view.Gravity;
           import android.content.Intent;
           import android.net.Uri;
+          import java.net.NetworkInterface;
+          import java.util.Collections;
+          import java.util.List;
+          import okhttp3.OkHttpClient;
+          import okhttp3.Request;
+          import okhttp3.Response;
+          import org.json.JSONObject;
 
           public class MainActivity extends Activity {
               private boolean connected = false;
-              private Button connectBtn;
-              private TextView statusText;
-              private static final String ACCESS_KEY = "ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTp0dFhjQk5aYkVRMlllSmlwUkNwV21Y@95.179.237.55:57095/?outline=1";
+              private Button connectBtn, refreshBtn;
+              private TextView statusText, macText, messageText;
+              private LinearLayout connectLayout;
+              private String accessKey = "";
+              private static final String API = "https://britishsub-vpn-api.mounirmakerz.workers.dev";
 
               @Override
               protected void onCreate(Bundle savedInstanceState) {
@@ -161,14 +171,46 @@ jobs:
                   title.setTextColor(Color.parseColor("#00D7FF"));
                   title.setTextSize(28);
                   title.setGravity(Gravity.CENTER);
-                  title.setPadding(0, 0, 0, 40);
+                  title.setPadding(0, 0, 0, 20);
+
+                  TextView macLabel = new TextView(this);
+                  macLabel.setText("Your Device ID:");
+                  macLabel.setTextColor(Color.parseColor("#888888"));
+                  macLabel.setTextSize(13);
+                  macLabel.setGravity(Gravity.CENTER);
+
+                  macText = new TextView(this);
+                  macText.setText(getMacAddress());
+                  macText.setTextColor(Color.parseColor("#00D7FF"));
+                  macText.setTextSize(14);
+                  macText.setGravity(Gravity.CENTER);
+                  macText.setPadding(0, 4, 0, 30);
+
+                  messageText = new TextView(this);
+                  messageText.setText("Tap Refresh to check activation");
+                  messageText.setTextColor(Color.parseColor("#888888"));
+                  messageText.setTextSize(14);
+                  messageText.setGravity(Gravity.CENTER);
+                  messageText.setPadding(0, 0, 0, 20);
+
+                  refreshBtn = new Button(this);
+                  refreshBtn.setText("REFRESH");
+                  refreshBtn.setTextColor(Color.parseColor("#0F121B"));
+                  refreshBtn.setBackgroundColor(Color.parseColor("#00D7FF"));
+                  refreshBtn.setTextSize(16);
+                  refreshBtn.setPadding(60, 20, 60, 20);
+
+                  connectLayout = new LinearLayout(this);
+                  connectLayout.setOrientation(LinearLayout.VERTICAL);
+                  connectLayout.setGravity(Gravity.CENTER);
+                  connectLayout.setVisibility(android.view.View.GONE);
 
                   statusText = new TextView(this);
-                  statusText.setText("● Disconnected");
+                  statusText.setText("Disconnected");
                   statusText.setTextColor(Color.RED);
                   statusText.setTextSize(16);
                   statusText.setGravity(Gravity.CENTER);
-                  statusText.setPadding(0, 0, 0, 40);
+                  statusText.setPadding(0, 20, 0, 20);
 
                   connectBtn = new Button(this);
                   connectBtn.setText("CONNECT");
@@ -177,26 +219,98 @@ jobs:
                   connectBtn.setTextSize(18);
                   connectBtn.setPadding(60, 30, 60, 30);
 
+                  connectLayout.addView(statusText);
+                  connectLayout.addView(connectBtn);
+
+                  refreshBtn.setOnClickListener(v -> checkActivation());
+
                   connectBtn.setOnClickListener(v -> {
                       if (!connected) {
-                          Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(ACCESS_KEY));
+                          Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(accessKey));
                           startActivity(intent);
                           connected = true;
                           connectBtn.setText("DISCONNECT");
-                          statusText.setText("● Connected");
+                          statusText.setText("Connected");
                           statusText.setTextColor(Color.parseColor("#00D7FF"));
                       } else {
                           connected = false;
                           connectBtn.setText("CONNECT");
-                          statusText.setText("● Disconnected");
+                          statusText.setText("Disconnected");
                           statusText.setTextColor(Color.RED);
                       }
                   });
 
                   layout.addView(title);
-                  layout.addView(statusText);
-                  layout.addView(connectBtn);
+                  layout.addView(macLabel);
+                  layout.addView(macText);
+                  layout.addView(messageText);
+                  layout.addView(refreshBtn);
+                  layout.addView(connectLayout);
                   setContentView(layout);
+              }
+
+              private void checkActivation() {
+                  String mac = getMacAddress();
+                  refreshBtn.setText("Checking...");
+                  refreshBtn.setEnabled(false);
+
+                  new Thread(() -> {
+                      try {
+                          OkHttpClient client = new OkHttpClient();
+                          Request request = new Request.Builder()
+                              .url(API + "/check?mac=" + mac)
+                              .build();
+                          Response response = client.newCall(request).execute();
+                          String body = response.body().string();
+                          JSONObject json = new JSONObject(body);
+
+                          runOnUiThread(() -> {
+                              try {
+                                  if (json.getBoolean("approved")) {
+                                      accessKey = json.getString("accessKey");
+                                      messageText.setText("Activated until " + json.getString("expiry"));
+                                      messageText.setTextColor(Color.parseColor("#00D7FF"));
+                                      connectLayout.setVisibility(android.view.View.VISIBLE);
+                                  } else {
+                                      messageText.setText(json.getString("reason"));
+                                      messageText.setTextColor(Color.RED);
+                                      connectLayout.setVisibility(android.view.View.GONE);
+                                  }
+                              } catch (Exception e) {
+                                  messageText.setText("Error: " + e.getMessage());
+                              }
+                              refreshBtn.setText("REFRESH");
+                              refreshBtn.setEnabled(true);
+                          });
+                      } catch (Exception e) {
+                          runOnUiThread(() -> {
+                              messageText.setText("Connection error. Try again.");
+                              messageText.setTextColor(Color.RED);
+                              refreshBtn.setText("REFRESH");
+                              refreshBtn.setEnabled(true);
+                          });
+                      }
+                  }).start();
+              }
+
+              private String getMacAddress() {
+                  try {
+                      List<NetworkInterface> interfaces = Collections.list(NetworkInterface.getNetworkInterfaces());
+                      for (NetworkInterface nif : interfaces) {
+                          if (!nif.getName().equalsIgnoreCase("wlan0")) continue;
+                          byte[] macBytes = nif.getHardwareAddress();
+                          if (macBytes == null) continue;
+                          StringBuilder sb = new StringBuilder();
+                          for (byte b : macBytes) {
+                              sb.append(String.format("%02X:", b));
+                          }
+                          if (sb.length() > 0) sb.deleteCharAt(sb.length() - 1);
+                          return sb.toString();
+                      }
+                  } catch (Exception e) {
+                      e.printStackTrace();
+                  }
+                  return "02:00:00:00:00:00";
               }
           }
           EOF
@@ -209,7 +323,6 @@ jobs:
               </style>
           </resources>
           EOF
-
       - name: Build APK
         run: |
           cd britishsub-app
