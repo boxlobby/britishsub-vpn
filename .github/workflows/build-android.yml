@@ -213,8 +213,8 @@ jobs:
       - name: Build APK
         run: |
           cd britishsub-app
-          chmod +x gradlew 2>/dev/null || true
-          gradle assembleRelease
+          gradle wrapper --gradle-version=7.6.1
+          ./gradlew assembleRelease --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
