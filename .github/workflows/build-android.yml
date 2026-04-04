@@ -16,31 +16,197 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '22'
-
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Cordova globally
-        run: npm install -g cordova
+      - name: Create Android Project
+        run: |
+          mkdir -p britishsub-app
+          cd britishsub-app
+          mkdir -p app/src/main/java/com/britishsub/vpn
+          mkdir -p app/src/main/res/layout
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/drawable
 
-      - name: Install dependencies
-        working-directory: client
-        run: npm install
+      - name: Create settings.gradle
+        run: |
+          cat > britishsub-app/settings.gradle << 'EOF'
+          rootProject.name = "BritishSubVPN"
+          include ':app'
+          EOF
 
-      - name: Add Android platform
-        working-directory: client
-        run: cordova platform add android
+      - name: Create root build.gradle
+        run: |
+          cat > britishsub-app/build.gradle << 'EOF'
+          buildscript {
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+              dependencies {
+                  classpath 'com.android.tools.build:gradle:8.2.0'
+              }
+          }
+          EOF
 
-      - name: Build Android APK
-        working-directory: client
-        run: cordova build android --release -- --packageType=apk
+      - name: Create app build.gradle
+        run: |
+          cat > britishsub-app/app/build.gradle << 'EOF'
+          plugins {
+              id 'com.android.application'
+          }
+          android {
+              namespace 'com.britishsub.vpn'
+              compileSdk 34
+              defaultConfig {
+                  applicationId "com.britishsub.vpn"
+                  minSdk 21
+                  targetSdk 34
+                  versionCode 1
+                  versionName "1.0"
+              }
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+              }
+          }
+          dependencies {
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+          }
+          EOF
+
+      - name: Create AndroidManifest
+        run: |
+          cat > britishsub-app/app/src/main/AndroidManifest.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <application
+                  android:label="BritishSub VPN"
+                  android:theme="@style/AppTheme">
+                  <activity android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN"/>
+                          <category android:name="android.intent.category.LAUNCHER"/>
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+      - name: Create MainActivity
+        run: |
+          cat > britishsub-app/app/src/main/java/com/britishsub/vpn/MainActivity.java << 'EOF'
+          package com.britishsub.vpn;
+          import android.app.Activity;
+          import android.os.Bundle;
+          import android.widget.Button;
+          import android.widget.TextView;
+          import android.widget.LinearLayout;
+          import android.graphics.Color;
+          import android.view.Gravity;
+          import android.content.Intent;
+          import android.net.Uri;
+
+          public class MainActivity extends Activity {
+              private boolean connected = false;
+              private Button connectBtn;
+              private TextView statusText;
+              private static final String ACCESS_KEY = "ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTp0dFhjQk5aYkVRMlllSmlwUkNwV21Y@95.179.237.55:57095/?outline=1";
+
+              @Override
+              protected void onCreate(Bundle savedInstanceState) {
+                  super.onCreate(savedInstanceState);
+                  LinearLayout layout = new LinearLayout(this);
+                  layout.setOrientation(LinearLayout.VERTICAL);
+                  layout.setGravity(Gravity.CENTER);
+                  layout.setBackgroundColor(Color.parseColor("#0F121B"));
+                  layout.setPadding(60, 60, 60, 60);
+
+                  TextView title = new TextView(this);
+                  title.setText("BritishSub VPN");
+                  title.setTextColor(Color.parseColor("#00D7FF"));
+                  title.setTextSize(28);
+                  title.setGravity(Gravity.CENTER);
+                  title.setPadding(0, 0, 0, 40);
+
+                  statusText = new TextView(this);
+                  statusText.setText("● Disconnected");
+                  statusText.setTextColor(Color.RED);
+                  statusText.setTextSize(16);
+                  statusText.setGravity(Gravity.CENTER);
+                  statusText.setPadding(0, 0, 0, 40);
+
+                  connectBtn = new Button(this);
+                  connectBtn.setText("CONNECT");
+                  connectBtn.setTextColor(Color.parseColor("#0F121B"));
+                  connectBtn.setBackgroundColor(Color.parseColor("#00D7FF"));
+                  connectBtn.setTextSize(18);
+                  connectBtn.setPadding(60, 30, 60, 30);
+
+                  connectBtn.setOnClickListener(v -> {
+                      if (!connected) {
+                          Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(ACCESS_KEY));
+                          startActivity(intent);
+                          connected = true;
+                          connectBtn.setText("DISCONNECT");
+                          statusText.setText("● Connected");
+                          statusText.setTextColor(Color.parseColor("#00D7FF"));
+                      } else {
+                          connected = false;
+                          connectBtn.setText("CONNECT");
+                          statusText.setText("● Disconnected");
+                          statusText.setTextColor(Color.RED);
+                      }
+                  });
+
+                  layout.addView(title);
+                  layout.addView(statusText);
+                  layout.addView(connectBtn);
+                  setContentView(layout);
+              }
+          }
+          EOF
+
+      - name: Create themes
+        run: |
+          cat > britishsub-app/app/src/main/res/values/themes.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
+                  <item name="colorPrimary">#00D7FF</item>
+              </style>
+          </resources>
+          EOF
+
+      - name: Create gradle wrapper
+        run: |
+          cd britishsub-app
+          cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-bin.zip
+          EOF
+          mkdir -p gradle/wrapper
+
+          cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-bin.zip
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          EOF
+
+          curl -L https://raw.githubusercontent.com/gradle/gradle/master/gradlew -o gradlew
+          chmod +x gradlew
+
+      - name: Build APK
+        run: |
+          cd britishsub-app
+          ./gradlew assembleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: BritishSub-VPN
-          path: client/platforms/android/app/build/outputs/apk/**/*.apk
+          path: britishsub-app/app/build/outputs/apk/release/*.apk
