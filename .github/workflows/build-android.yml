@@ -184,7 +184,13 @@ jobs:
               </style>
           </resources>
           EOF
-
+      - name: Create gradle.properties
+        run: |
+          cat > britishsub-app/gradle.properties << 'EOF'
+          android.useAndroidX=true
+          android.enableJetifier=true
+          EOF
+          
       - name: Create gradle wrapper
         run: |
           mkdir -p britishsub-app/gradle/wrapper
