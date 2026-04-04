@@ -183,13 +183,9 @@ jobs:
 
       - name: Create gradle wrapper
         run: |
-          cd britishsub-app
-          cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
-          distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-bin.zip
-          EOF
-          mkdir -p gradle/wrapper
+          mkdir -p britishsub-app/gradle/wrapper
 
-          cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
+          cat > britishsub-app/gradle/wrapper/gradle-wrapper.properties << 'EOF'
           distributionBase=GRADLE_USER_HOME
           distributionPath=wrapper/dists
           distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-bin.zip
@@ -197,13 +193,10 @@ jobs:
           zipStorePath=wrapper/dists
           EOF
 
-          curl -L https://raw.githubusercontent.com/gradle/gradle/master/gradlew -o gradlew
-          chmod +x gradlew
-
       - name: Build APK
         run: |
           cd britishsub-app
-          ./gradlew assembleRelease
+          gradle assembleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
