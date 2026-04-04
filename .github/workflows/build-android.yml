@@ -21,16 +21,26 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Cordova globally
+        run: npm install -g cordova
+
       - name: Install dependencies
         working-directory: client
         run: npm install
 
+      - name: Add Android platform
+        working-directory: client
+        run: cordova platform add android
+
       - name: Build Android APK
         working-directory: client
-        run: npm run build:android
+        run: cordova build android --release -- --packageType=apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: BritishSub-VPN
-          path: client/build/android/**/*.apk
+          path: client/platforms/android/app/build/outputs/apk/**/*.apk
