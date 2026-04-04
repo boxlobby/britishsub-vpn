@@ -52,7 +52,6 @@ jobs:
               repositories {
                   google()
                   mavenCentral()
-                  maven { url 'https://jitpack.io' }
               }
           }
           EOF
@@ -92,7 +91,6 @@ jobs:
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.squareup.okhttp3:okhttp:4.12.0'
-              implementation 'com.wireguard.android:tunnel:1.0.20230706'
           }
           EOF
 
@@ -116,7 +114,6 @@ jobs:
               package="com.britishsub.vpn">
               <uses-permission android:name="android.permission.INTERNET"/>
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-              <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
               <application
                   android:allowBackup="true"
                   android:label="BritishSub VPN"
@@ -150,7 +147,6 @@ jobs:
           import android.util.Log;
           import java.io.*;
           import java.net.*;
-          import java.nio.ByteBuffer;
 
           public class BritishSubVpnService extends VpnService {
               private static final String TAG = "BritishSubVPN";
@@ -163,8 +159,6 @@ jobs:
 
               private static final String SERVER_HOST = "95.179.237.55";
               private static final int SERVER_PORT = 51820;
-              private static final String CLIENT_PRIVATE_KEY = "uNNN8NPjhqASHHIlDLw+14eyPH/uk8x/INu9qTuklW8=";
-              private static final String SERVER_PUBLIC_KEY = "0ZgusCEXOLYtAM/7hEGDKwqub6GsPiGdUpDkISSqEjY=";
 
               @Override
               public int onStartCommand(Intent intent, int flags, int startId) {
@@ -196,7 +190,6 @@ jobs:
                       running = true;
                       vpnThread = new Thread(this::tunnel);
                       vpnThread.start();
-
                       sendBroadcast(new Intent("com.britishsub.vpn.VPN_CONNECTED"));
 
                   } catch (Exception e) {
@@ -215,18 +208,14 @@ jobs:
 
                       FileInputStream in = new FileInputStream(vpnInterface.getFileDescriptor());
                       FileOutputStream out = new FileOutputStream(vpnInterface.getFileDescriptor());
-
                       byte[] buf = new byte[32767];
 
                       while (running) {
-                          // Read from VPN interface and send to server
                           int len = in.read(buf);
                           if (len > 0) {
                               DatagramPacket pkt = new DatagramPacket(buf, len, serverAddr, SERVER_PORT);
                               try { udpSocket.send(pkt); } catch (Exception ignored) {}
                           }
-
-                          // Read from server and write to VPN interface
                           DatagramPacket recv = new DatagramPacket(buf, buf.length);
                           try {
                               udpSocket.receive(recv);
@@ -424,11 +413,11 @@ jobs:
                           runOnUiThread(() -> {
                               try {
                                   if (json.getBoolean("approved")) {
-                                      messageText.setText("✅ Activated until " + json.getString("expiry"));
+                                      messageText.setText("Activated until " + json.getString("expiry"));
                                       messageText.setTextColor(Color.parseColor("#00D7FF"));
                                       connectLayout.setVisibility(android.view.View.VISIBLE);
                                   } else {
-                                      messageText.setText("❌ " + json.getString("reason"));
+                                      messageText.setText(json.getString("reason"));
                                       messageText.setTextColor(Color.RED);
                                       connectLayout.setVisibility(android.view.View.GONE);
                                   }
