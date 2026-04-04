@@ -31,7 +31,6 @@ jobs:
         run: |
           mkdir -p britishsub-app/app/src/main/java/com/britishsub/vpn
           mkdir -p britishsub-app/app/src/main/res/values
-          mkdir -p britishsub-app/app/src/main/res/xml
           mkdir -p britishsub-app/gradle/wrapper
 
           cat > britishsub-app/settings.gradle << 'EOF'
@@ -53,6 +52,7 @@ jobs:
               repositories {
                   google()
                   mavenCentral()
+                  maven { url 'https://jitpack.io' }
               }
           }
           EOF
@@ -92,6 +92,7 @@ jobs:
           dependencies {
               implementation 'androidx.appcompat:appcompat:1.6.1'
               implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+              implementation 'com.wireguard.android:tunnel:1.0.20230706'
           }
           EOF
 
@@ -115,6 +116,7 @@ jobs:
               package="com.britishsub.vpn">
               <uses-permission android:name="android.permission.INTERNET"/>
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+              <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
               <application
                   android:allowBackup="true"
                   android:label="BritishSub VPN"
@@ -149,7 +151,6 @@ jobs:
           import java.io.*;
           import java.net.*;
           import java.nio.ByteBuffer;
-          import java.nio.channels.*;
 
           public class BritishSubVpnService extends VpnService {
               private static final String TAG = "BritishSubVPN";
@@ -157,11 +158,13 @@ jobs:
               private Thread vpnThread;
               private boolean running = false;
 
-              public static String serverHost = "95.179.237.55";
-              public static int serverPort = 57095;
-              public static String password = "ttXcBNZbEQ2YeJipRCpWmX";
               public static final String ACTION_CONNECT = "com.britishsub.vpn.CONNECT";
               public static final String ACTION_DISCONNECT = "com.britishsub.vpn.DISCONNECT";
+
+              private static final String SERVER_HOST = "95.179.237.55";
+              private static final int SERVER_PORT = 51820;
+              private static final String CLIENT_PRIVATE_KEY = "uNNN8NPjhqASHHIlDLw+14eyPH/uk8x/INu9qTuklW8=";
+              private static final String SERVER_PUBLIC_KEY = "0ZgusCEXOLYtAM/7hEGDKwqub6GsPiGdUpDkISSqEjY=";
 
               @Override
               public int onStartCommand(Intent intent, int flags, int startId) {
@@ -176,84 +179,79 @@ jobs:
               private void connect() {
                   try {
                       Builder builder = new Builder();
-                      builder.setMtu(1500);
+                      builder.setMtu(1420);
                       builder.addAddress("10.0.0.2", 32);
+                      builder.addDnsServer("1.1.1.1");
                       builder.addDnsServer("8.8.8.8");
-                      builder.addDnsServer("8.8.4.4");
                       builder.addRoute("0.0.0.0", 0);
                       builder.setSession("BritishSub VPN");
+                      builder.setBlocking(true);
                       vpnInterface = builder.establish();
 
+                      if (vpnInterface == null) {
+                          sendBroadcast(new Intent("com.britishsub.vpn.VPN_DISCONNECTED"));
+                          return;
+                      }
+
                       running = true;
-                      vpnThread = new Thread(this::runVpnTunnel);
+                      vpnThread = new Thread(this::tunnel);
                       vpnThread.start();
 
-                      Intent broadcastIntent = new Intent("com.britishsub.vpn.VPN_CONNECTED");
-                      sendBroadcast(broadcastIntent);
+                      sendBroadcast(new Intent("com.britishsub.vpn.VPN_CONNECTED"));
 
                   } catch (Exception e) {
-                      Log.e(TAG, "VPN connect error: " + e.getMessage());
+                      Log.e(TAG, "Connect error: " + e.getMessage());
                       disconnect();
                   }
               }
 
-              private void runVpnTunnel() {
+              private void tunnel() {
                   try {
+                      InetAddress serverAddr = InetAddress.getByName(SERVER_HOST);
+                      DatagramSocket udpSocket = new DatagramSocket();
+                      protect(udpSocket);
+                      udpSocket.connect(serverAddr, SERVER_PORT);
+                      udpSocket.setSoTimeout(100);
+
                       FileInputStream in = new FileInputStream(vpnInterface.getFileDescriptor());
                       FileOutputStream out = new FileOutputStream(vpnInterface.getFileDescriptor());
 
-                      InetAddress serverAddr = InetAddress.getByName(serverHost);
-                      DatagramSocket tunnel = new DatagramSocket();
-                      protect(tunnel);
-                      tunnel.connect(serverAddr, serverPort);
-
-                      ByteBuffer packet = ByteBuffer.allocate(32767);
-                      byte[] serverBuf = new byte[32767];
-
-                      tunnel.setSoTimeout(100);
+                      byte[] buf = new byte[32767];
 
                       while (running) {
-                          packet.clear();
-                          int length = in.read(packet.array());
-                          if (length > 0) {
-                              packet.limit(length);
-                              DatagramPacket sendPacket = new DatagramPacket(
-                                  packet.array(), length, serverAddr, serverPort);
-                              try { tunnel.send(sendPacket); } catch (Exception ignored) {}
+                          // Read from VPN interface and send to server
+                          int len = in.read(buf);
+                          if (len > 0) {
+                              DatagramPacket pkt = new DatagramPacket(buf, len, serverAddr, SERVER_PORT);
+                              try { udpSocket.send(pkt); } catch (Exception ignored) {}
                           }
 
+                          // Read from server and write to VPN interface
+                          DatagramPacket recv = new DatagramPacket(buf, buf.length);
                           try {
-                              DatagramPacket receivePacket = new DatagramPacket(serverBuf, serverBuf.length);
-                              tunnel.receive(receivePacket);
-                              if (receivePacket.getLength() > 0) {
-                                  out.write(receivePacket.getData(), 0, receivePacket.getLength());
+                              udpSocket.receive(recv);
+                              if (recv.getLength() > 0) {
+                                  out.write(recv.getData(), 0, recv.getLength());
                               }
                           } catch (SocketTimeoutException ignored) {}
                       }
-                      tunnel.close();
+                      udpSocket.close();
                   } catch (Exception e) {
                       Log.e(TAG, "Tunnel error: " + e.getMessage());
+                      disconnect();
                   }
               }
 
               private void disconnect() {
                   running = false;
-                  if (vpnThread != null) vpnThread.interrupt();
-                  try {
-                      if (vpnInterface != null) vpnInterface.close();
-                  } catch (Exception e) {
-                      Log.e(TAG, "Disconnect error: " + e.getMessage());
-                  }
-                  Intent broadcastIntent = new Intent("com.britishsub.vpn.VPN_DISCONNECTED");
-                  sendBroadcast(broadcastIntent);
+                  if (vpnThread != null) { vpnThread.interrupt(); vpnThread = null; }
+                  try { if (vpnInterface != null) { vpnInterface.close(); vpnInterface = null; } } catch (Exception ignored) {}
+                  sendBroadcast(new Intent("com.britishsub.vpn.VPN_DISCONNECTED"));
                   stopSelf();
               }
 
               @Override
-              public void onDestroy() {
-                  disconnect();
-                  super.onDestroy();
-              }
+              public void onDestroy() { disconnect(); super.onDestroy(); }
           }
           EOF
 
@@ -292,12 +290,12 @@ jobs:
                       if ("com.britishsub.vpn.VPN_CONNECTED".equals(intent.getAction())) {
                           connected = true;
                           connectBtn.setText("DISCONNECT");
-                          statusText.setText("Connected");
+                          statusText.setText("● Connected");
                           statusText.setTextColor(Color.parseColor("#00D7FF"));
                       } else if ("com.britishsub.vpn.VPN_DISCONNECTED".equals(intent.getAction())) {
                           connected = false;
                           connectBtn.setText("CONNECT");
-                          statusText.setText("Disconnected");
+                          statusText.setText("● Disconnected");
                           statusText.setTextColor(Color.RED);
                       }
                   }
@@ -358,7 +356,7 @@ jobs:
                   connectLayout.setVisibility(android.view.View.GONE);
 
                   statusText = new TextView(this);
-                  statusText.setText("Disconnected");
+                  statusText.setText("● Disconnected");
                   statusText.setTextColor(Color.RED);
                   statusText.setTextSize(16);
                   statusText.setGravity(Gravity.CENTER);
@@ -375,13 +373,9 @@ jobs:
                   connectLayout.addView(connectBtn);
 
                   refreshBtn.setOnClickListener(v -> checkActivation());
-
                   connectBtn.setOnClickListener(v -> {
-                      if (!connected) {
-                          startVpn();
-                      } else {
-                          stopVpn();
-                      }
+                      if (!connected) startVpn();
+                      else stopVpn();
                   });
 
                   layout.addView(title);
@@ -395,11 +389,8 @@ jobs:
 
               private void startVpn() {
                   Intent intent = VpnService.prepare(this);
-                  if (intent != null) {
-                      startActivityForResult(intent, VPN_REQUEST_CODE);
-                  } else {
-                      onActivityResult(VPN_REQUEST_CODE, RESULT_OK, null);
-                  }
+                  if (intent != null) startActivityForResult(intent, VPN_REQUEST_CODE);
+                  else onActivityResult(VPN_REQUEST_CODE, RESULT_OK, null);
               }
 
               private void stopVpn() {
@@ -421,7 +412,6 @@ jobs:
                   String mac = getMacAddress();
                   refreshBtn.setText("Checking...");
                   refreshBtn.setEnabled(false);
-
                   new Thread(() -> {
                       try {
                           OkHttpClient client = new OkHttpClient();
@@ -431,15 +421,14 @@ jobs:
                           Response response = client.newCall(request).execute();
                           String body = response.body().string();
                           JSONObject json = new JSONObject(body);
-
                           runOnUiThread(() -> {
                               try {
                                   if (json.getBoolean("approved")) {
-                                      messageText.setText("Activated until " + json.getString("expiry"));
+                                      messageText.setText("✅ Activated until " + json.getString("expiry"));
                                       messageText.setTextColor(Color.parseColor("#00D7FF"));
                                       connectLayout.setVisibility(android.view.View.VISIBLE);
                                   } else {
-                                      messageText.setText(json.getString("reason"));
+                                      messageText.setText("❌ " + json.getString("reason"));
                                       messageText.setTextColor(Color.RED);
                                       connectLayout.setVisibility(android.view.View.GONE);
                                   }
@@ -468,15 +457,11 @@ jobs:
                           byte[] macBytes = nif.getHardwareAddress();
                           if (macBytes == null) continue;
                           StringBuilder sb = new StringBuilder();
-                          for (byte b : macBytes) {
-                              sb.append(String.format("%02X:", b));
-                          }
+                          for (byte b : macBytes) sb.append(String.format("%02X:", b));
                           if (sb.length() > 0) sb.deleteCharAt(sb.length() - 1);
                           return sb.toString();
                       }
-                  } catch (Exception e) {
-                      e.printStackTrace();
-                  }
+                  } catch (Exception e) { e.printStackTrace(); }
                   return "02:00:00:00:00:00";
               }
 
