@@ -19,21 +19,27 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Create project structure
+      - name: Create debug keystore
+        run: |
+          mkdir -p ~/.android
+          keytool -genkey -v -keystore ~/.android/debug.keystore \
+            -alias androiddebugkey -keyalg RSA -keysize 2048 \
+            -validity 10000 -storepass android -keypass android \
+            -dname "CN=BritishSub, O=BritishSub, C=GB"
+
+      - name: Create full project
         run: |
           mkdir -p britishsub-app/app/src/main/java/com/britishsub/vpn
           mkdir -p britishsub-app/app/src/main/res/values
           mkdir -p britishsub-app/gradle/wrapper
 
-      - name: Create settings.gradle
-        run: |
+          # settings.gradle
           cat > britishsub-app/settings.gradle << 'EOF'
           rootProject.name = "BritishSubVPN"
           include ':app'
           EOF
 
-      - name: Create root build.gradle
-        run: |
+          # root build.gradle
           cat > britishsub-app/build.gradle << 'EOF'
           buildscript {
               repositories {
@@ -52,8 +58,7 @@ jobs:
           }
           EOF
 
-      - name: Create app build.gradle
-        run: |
+          # app/build.gradle
           cat > britishsub-app/app/build.gradle << 'EOF'
           plugins {
               id 'com.android.application'
@@ -68,11 +73,23 @@ jobs:
                   versionCode 1
                   versionName "1.0"
               }
+              signingConfigs {
+                  release {
+                      storeFile file(System.getProperty("user.home") + "/.android/debug.keystore")
+                      storePassword "android"
+                      keyAlias "androiddebugkey"
+                      keyPassword "android"
+                  }
+              }
               buildTypes {
                   release {
                       minifyEnabled false
-                      signingConfig signingConfigs.debug
+                      signingConfig signingConfigs.release
                   }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
               }
           }
           dependencies {
@@ -80,15 +97,14 @@ jobs:
           }
           EOF
 
-      - name: Create gradle.properties
-        run: |
+          # gradle.properties
           cat > britishsub-app/gradle.properties << 'EOF'
           android.useAndroidX=true
           android.enableJetifier=true
+          org.gradle.jvmargs=-Xmx2048m
           EOF
 
-      - name: Create gradle wrapper properties
-        run: |
+          # gradle wrapper
           cat > britishsub-app/gradle/wrapper/gradle-wrapper.properties << 'EOF'
           distributionBase=GRADLE_USER_HOME
           distributionPath=wrapper/dists
@@ -97,16 +113,17 @@ jobs:
           zipStorePath=wrapper/dists
           EOF
 
-      - name: Create AndroidManifest
-        run: |
+          # AndroidManifest.xml
           cat > britishsub-app/app/src/main/AndroidManifest.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET"/>
               <application
+                  android:allowBackup="true"
                   android:label="BritishSub VPN"
                   android:theme="@style/AppTheme">
-                  <activity android:name=".MainActivity"
+                  <activity
+                      android:name=".MainActivity"
                       android:exported="true">
                       <intent-filter>
                           <action android:name="android.intent.action.MAIN"/>
@@ -117,8 +134,7 @@ jobs:
           </manifest>
           EOF
 
-      - name: Create MainActivity
-        run: |
+          # MainActivity.java
           cat > britishsub-app/app/src/main/java/com/britishsub/vpn/MainActivity.java << 'EOF'
           package com.britishsub.vpn;
           import android.app.Activity;
@@ -140,6 +156,7 @@ jobs:
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
+
                   LinearLayout layout = new LinearLayout(this);
                   layout.setOrientation(LinearLayout.VERTICAL);
                   layout.setGravity(Gravity.CENTER);
@@ -191,8 +208,7 @@ jobs:
           }
           EOF
 
-      - name: Create themes
-        run: |
+          # themes.xml
           cat > britishsub-app/app/src/main/res/values/themes.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
@@ -205,7 +221,7 @@ jobs:
       - name: Build APK
         run: |
           cd britishsub-app
-          gradle assembleRelease
+          gradle assembleRelease --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
