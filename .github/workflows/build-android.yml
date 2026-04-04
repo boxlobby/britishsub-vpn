@@ -33,13 +33,11 @@ jobs:
           mkdir -p britishsub-app/app/src/main/res/values
           mkdir -p britishsub-app/gradle/wrapper
 
-          # settings.gradle
           cat > britishsub-app/settings.gradle << 'EOF'
           rootProject.name = "BritishSubVPN"
           include ':app'
           EOF
 
-          # root build.gradle
           cat > britishsub-app/build.gradle << 'EOF'
           buildscript {
               repositories {
@@ -47,7 +45,7 @@ jobs:
                   mavenCentral()
               }
               dependencies {
-                  classpath 'com.android.tools.build:gradle:8.2.0'
+                  classpath 'com.android.tools.build:gradle:7.4.2'
               }
           }
           allprojects {
@@ -58,18 +56,16 @@ jobs:
           }
           EOF
 
-          # app/build.gradle
           cat > britishsub-app/app/build.gradle << 'EOF'
           plugins {
               id 'com.android.application'
           }
           android {
-              namespace 'com.britishsub.vpn'
-              compileSdk 34
+              compileSdkVersion 33
               defaultConfig {
                   applicationId "com.britishsub.vpn"
-                  minSdk 21
-                  targetSdk 34
+                  minSdkVersion 21
+                  targetSdkVersion 33
                   versionCode 1
                   versionName "1.0"
               }
@@ -88,8 +84,8 @@ jobs:
                   }
               }
               compileOptions {
-                  sourceCompatibility JavaVersion.VERSION_17
-                  targetCompatibility JavaVersion.VERSION_17
+                  sourceCompatibility JavaVersion.VERSION_11
+                  targetCompatibility JavaVersion.VERSION_11
               }
           }
           dependencies {
@@ -97,26 +93,24 @@ jobs:
           }
           EOF
 
-          # gradle.properties
           cat > britishsub-app/gradle.properties << 'EOF'
           android.useAndroidX=true
           android.enableJetifier=true
           org.gradle.jvmargs=-Xmx2048m
           EOF
 
-          # gradle wrapper
           cat > britishsub-app/gradle/wrapper/gradle-wrapper.properties << 'EOF'
           distributionBase=GRADLE_USER_HOME
           distributionPath=wrapper/dists
-          distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-bin.zip
+          distributionUrl=https\://services.gradle.org/distributions/gradle-7.6.1-bin.zip
           zipStoreBase=GRADLE_USER_HOME
           zipStorePath=wrapper/dists
           EOF
 
-          # AndroidManifest.xml
           cat > britishsub-app/app/src/main/AndroidManifest.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+              package="com.britishsub.vpn">
               <uses-permission android:name="android.permission.INTERNET"/>
               <application
                   android:allowBackup="true"
@@ -134,7 +128,6 @@ jobs:
           </manifest>
           EOF
 
-          # MainActivity.java
           cat > britishsub-app/app/src/main/java/com/britishsub/vpn/MainActivity.java << 'EOF'
           package com.britishsub.vpn;
           import android.app.Activity;
@@ -208,7 +201,6 @@ jobs:
           }
           EOF
 
-          # themes.xml
           cat > britishsub-app/app/src/main/res/values/themes.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
@@ -221,7 +213,8 @@ jobs:
       - name: Build APK
         run: |
           cd britishsub-app
-          gradle assembleRelease --stacktrace
+          chmod +x gradlew 2>/dev/null || true
+          gradle assembleRelease
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
