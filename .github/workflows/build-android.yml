@@ -213,8 +213,9 @@ jobs:
       - name: Build APK
         run: |
           cd britishsub-app
-          gradle wrapper --gradle-version=7.6.1
-          ./gradlew assembleRelease --stacktrace
+          curl -L https://services.gradle.org/distributions/gradle-7.6.1-bin.zip -o gradle.zip
+          unzip -q gradle.zip
+          ./gradle-7.6.1/bin/gradle assembleRelease --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
