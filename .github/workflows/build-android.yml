@@ -27,10 +27,24 @@ jobs:
             -validity 10000 -storepass android -keypass android \
             -dname "CN=BritishSub, O=BritishSub, C=GB"
 
+      - name: Download app icon
+        run: |
+          mkdir -p britishsub-app/app/src/main/res/mipmap-xxxhdpi
+          mkdir -p britishsub-app/app/src/main/res/mipmap-xxhdpi
+          mkdir -p britishsub-app/app/src/main/res/mipmap-xhdpi
+          mkdir -p britishsub-app/app/src/main/res/mipmap-hdpi
+          mkdir -p britishsub-app/app/src/main/res/mipmap-mdpi
+          curl -L "https://pub-f723409cbfab46caa18309b26581197b.r2.dev/favicon.png" -o /tmp/icon.png
+          for dir in xxxhdpi xxhdpi xhdpi hdpi mdpi; do
+            cp /tmp/icon.png britishsub-app/app/src/main/res/mipmap-${dir}/ic_launcher.png
+            cp /tmp/icon.png britishsub-app/app/src/main/res/mipmap-${dir}/ic_launcher_round.png
+          done
+
       - name: Create full project
         run: |
           mkdir -p britishsub-app/app/src/main/java/com/britishsub/vpn
           mkdir -p britishsub-app/app/src/main/res/values
+          mkdir -p britishsub-app/app/src/main/res/anim
           mkdir -p britishsub-app/gradle/wrapper
 
           cat > britishsub-app/settings.gradle << 'EOF'
@@ -118,6 +132,8 @@ jobs:
               <application
                   android:allowBackup="true"
                   android:label="BritishSub VPN"
+                  android:icon="@mipmap/ic_launcher"
+                  android:roundIcon="@mipmap/ic_launcher_round"
                   android:theme="@style/AppTheme">
                   <activity
                       android:name=".MainActivity"
@@ -147,7 +163,6 @@ jobs:
           import com.wireguard.android.backend.GoBackend;
           import com.wireguard.android.backend.Tunnel;
           import com.wireguard.config.Config;
-
           import java.io.BufferedReader;
           import java.io.StringReader;
 
@@ -160,8 +175,7 @@ jobs:
                   "[Interface]\n" +
                   "PrivateKey = uNNN8NPjhqASHHIlDLw+14eyPH/uk8x/INu9qTuklW8=\n" +
                   "Address = 10.0.0.2/32\n" +
-                  "DNS = 1.1.1.1\n" +
-                  "\n" +
+                  "DNS = 1.1.1.1\n\n" +
                   "[Peer]\n" +
                   "PublicKey = 0ZgusCEXOLYtAM/7hEGDKwqub6GsPiGdUpDkISSqEjY=\n" +
                   "Endpoint = 95.179.237.55:51820\n" +
@@ -185,23 +199,15 @@ jobs:
                   try {
                       backend = new GoBackend(this);
                       Config config = Config.parse(new BufferedReader(new StringReader(WG_CONFIG)));
-
                       tunnel = new Tunnel() {
-                          @Override
-                          public String getName() { return "BritishSub"; }
-
-                          @Override
-                          public void onStateChange(State state) {
-                              sendBroadcast(new Intent(
-                                  state == State.UP ?
+                          @Override public String getName() { return "BritishSub"; }
+                          @Override public void onStateChange(State state) {
+                              sendBroadcast(new Intent(state == State.UP ?
                                   "com.britishsub.vpn.VPN_CONNECTED" :
-                                  "com.britishsub.vpn.VPN_DISCONNECTED"
-                              ));
+                                  "com.britishsub.vpn.VPN_DISCONNECTED"));
                           }
                       };
-
                       backend.setState(tunnel, Tunnel.State.UP, config);
-
                   } catch (Exception e) {
                       Log.e(TAG, "Connect error: " + e.getMessage());
                       sendBroadcast(new Intent("com.britishsub.vpn.VPN_DISCONNECTED"));
@@ -211,9 +217,8 @@ jobs:
 
               private void disconnect() {
                   try {
-                      if (backend != null && tunnel != null) {
+                      if (backend != null && tunnel != null)
                           backend.setState(tunnel, Tunnel.State.DOWN, null);
-                      }
                   } catch (Exception e) {
                       Log.e(TAG, "Disconnect error: " + e.getMessage());
                   }
@@ -221,30 +226,34 @@ jobs:
                   stopSelf();
               }
 
-              @Override
-              public void onDestroy() {
-                  disconnect();
-                  super.onDestroy();
-              }
+              @Override public void onDestroy() { disconnect(); super.onDestroy(); }
           }
           EOF
 
           cat > britishsub-app/app/src/main/java/com/britishsub/vpn/MainActivity.java << 'EOF'
           package com.britishsub.vpn;
 
+          import android.animation.AnimatorSet;
+          import android.animation.ObjectAnimator;
+          import android.animation.ValueAnimator;
           import android.app.Activity;
           import android.content.BroadcastReceiver;
           import android.content.Context;
           import android.content.Intent;
           import android.content.IntentFilter;
+          import android.graphics.Color;
+          import android.graphics.drawable.GradientDrawable;
           import android.net.VpnService;
           import android.os.Bundle;
-          import android.widget.*;
-          import android.graphics.Color;
+          import android.os.Handler;
           import android.view.Gravity;
+          import android.view.View;
+          import android.view.animation.AccelerateDecelerateInterpolator;
+          import android.widget.*;
           import java.net.NetworkInterface;
           import java.util.Collections;
           import java.util.List;
+          import java.util.Locale;
           import okhttp3.OkHttpClient;
           import okhttp3.Request;
           import okhttp3.Response;
@@ -253,24 +262,36 @@ jobs:
           public class MainActivity extends Activity {
               private static final int VPN_REQUEST_CODE = 1;
               private boolean connected = false;
+              private boolean connecting = false;
               private Button connectBtn, refreshBtn;
-              private TextView statusText, macText, messageText;
-              private LinearLayout connectLayout;
+              private TextView statusText, macText, messageText, timerText, sidebarTitle;
+              private LinearLayout connectLayout, sidebar, overlay;
+              private View pulseRing1, pulseRing2, pulseRing3, connectCircle;
               private static final String API = "https://britishsub-vpn-api.mounirmakerz.workers.dev";
+
+              private Handler timerHandler = new Handler();
+              private long startTime = 0;
+              private AnimatorSet pulseAnimator;
+
+              private Runnable timerRunnable = new Runnable() {
+                  @Override
+                  public void run() {
+                      long elapsed = System.currentTimeMillis() - startTime;
+                      long hours = elapsed / 3600000;
+                      long minutes = (elapsed % 3600000) / 60000;
+                      long seconds = (elapsed % 60000) / 1000;
+                      timerText.setText(String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds));
+                      timerHandler.postDelayed(this, 1000);
+                  }
+              };
 
               private BroadcastReceiver vpnReceiver = new BroadcastReceiver() {
                   @Override
                   public void onReceive(Context context, Intent intent) {
                       if ("com.britishsub.vpn.VPN_CONNECTED".equals(intent.getAction())) {
-                          connected = true;
-                          connectBtn.setText("DISCONNECT");
-                          statusText.setText("● Connected");
-                          statusText.setTextColor(Color.parseColor("#00D7FF"));
+                          onConnected();
                       } else if ("com.britishsub.vpn.VPN_DISCONNECTED".equals(intent.getAction())) {
-                          connected = false;
-                          connectBtn.setText("CONNECT");
-                          statusText.setText("● Disconnected");
-                          statusText.setTextColor(Color.RED);
+                          onDisconnected();
                       }
                   }
               };
@@ -284,84 +305,346 @@ jobs:
                   filter.addAction("com.britishsub.vpn.VPN_DISCONNECTED");
                   registerReceiver(vpnReceiver, filter);
 
-                  LinearLayout layout = new LinearLayout(this);
-                  layout.setOrientation(LinearLayout.VERTICAL);
-                  layout.setGravity(Gravity.CENTER);
-                  layout.setBackgroundColor(Color.parseColor("#0F121B"));
-                  layout.setPadding(60, 60, 60, 60);
+                  // Root frame
+                  FrameLayout root = new FrameLayout(this);
+                  root.setBackgroundColor(Color.parseColor("#0F121B"));
 
-                  TextView title = new TextView(this);
-                  title.setText("BritishSub VPN");
-                  title.setTextColor(Color.parseColor("#00D7FF"));
-                  title.setTextSize(28);
-                  title.setGravity(Gravity.CENTER);
-                  title.setPadding(0, 0, 0, 20);
+                  // Main layout
+                  LinearLayout main = new LinearLayout(this);
+                  main.setOrientation(LinearLayout.VERTICAL);
+                  main.setBackgroundColor(Color.parseColor("#0F121B"));
 
-                  TextView macLabel = new TextView(this);
-                  macLabel.setText("Your Device ID:");
-                  macLabel.setTextColor(Color.parseColor("#888888"));
-                  macLabel.setTextSize(13);
-                  macLabel.setGravity(Gravity.CENTER);
+                  // Top bar
+                  LinearLayout topBar = new LinearLayout(this);
+                  topBar.setOrientation(LinearLayout.HORIZONTAL);
+                  topBar.setGravity(Gravity.CENTER_VERTICAL);
+                  topBar.setPadding(40, 60, 40, 20);
 
-                  macText = new TextView(this);
-                  macText.setText(getMacAddress());
-                  macText.setTextColor(Color.parseColor("#00D7FF"));
-                  macText.setTextSize(14);
-                  macText.setGravity(Gravity.CENTER);
-                  macText.setPadding(0, 4, 0, 30);
+                  TextView appTitle = new TextView(this);
+                  appTitle.setText("BritishSub VPN");
+                  appTitle.setTextColor(Color.parseColor("#00D7FF"));
+                  appTitle.setTextSize(20);
+                  appTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+                  LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+                  appTitle.setLayoutParams(titleParams);
 
+                  Button menuBtn = new Button(this);
+                  menuBtn.setText("☰");
+                  menuBtn.setTextColor(Color.parseColor("#00D7FF"));
+                  menuBtn.setTextSize(22);
+                  menuBtn.setBackgroundColor(Color.TRANSPARENT);
+                  menuBtn.setPadding(20, 10, 20, 10);
+                  menuBtn.setOnClickListener(v -> openSidebar());
+
+                  topBar.addView(appTitle);
+                  topBar.addView(menuBtn);
+
+                  // Center content
+                  LinearLayout center = new LinearLayout(this);
+                  center.setOrientation(LinearLayout.VERTICAL);
+                  center.setGravity(Gravity.CENTER);
+                  LinearLayout.LayoutParams centerParams = new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
+                  center.setLayoutParams(centerParams);
+                  center.setPadding(40, 0, 40, 0);
+
+                  // Pulse animation container
+                  FrameLayout pulseContainer = new FrameLayout(this);
+                  FrameLayout.LayoutParams pulseContainerParams = new FrameLayout.LayoutParams(400, 400);
+                  pulseContainerParams.gravity = Gravity.CENTER_HORIZONTAL;
+                  pulseContainer.setLayoutParams(pulseContainerParams);
+
+                  // Pulse rings
+                  pulseRing1 = createRing(380, Color.parseColor("#1A3A4A"));
+                  pulseRing2 = createRing(300, Color.parseColor("#1A4A5A"));
+                  pulseRing3 = createRing(220, Color.parseColor("#1A5A6A"));
+
+                  // Connect circle
+                  connectCircle = new View(this);
+                  FrameLayout.LayoutParams circleParams = new FrameLayout.LayoutParams(160, 160);
+                  circleParams.gravity = Gravity.CENTER;
+                  connectCircle.setLayoutParams(circleParams);
+                  GradientDrawable circleDrawable = new GradientDrawable();
+                  circleDrawable.setShape(GradientDrawable.OVAL);
+                  circleDrawable.setColor(Color.parseColor("#00D7FF"));
+                  connectCircle.setBackground(circleDrawable);
+
+                  pulseContainer.addView(pulseRing1);
+                  pulseContainer.addView(pulseRing2);
+                  pulseContainer.addView(pulseRing3);
+                  pulseContainer.addView(connectCircle);
+
+                  // Status
+                  statusText = new TextView(this);
+                  statusText.setText("DISCONNECTED");
+                  statusText.setTextColor(Color.parseColor("#FF4444"));
+                  statusText.setTextSize(18);
+                  statusText.setTypeface(null, android.graphics.Typeface.BOLD);
+                  statusText.setGravity(Gravity.CENTER);
+                  statusText.setPadding(0, 30, 0, 8);
+
+                  // Timer
+                  timerText = new TextView(this);
+                  timerText.setText("00:00:00");
+                  timerText.setTextColor(Color.parseColor("#888888"));
+                  timerText.setTextSize(32);
+                  timerText.setTypeface(null, android.graphics.Typeface.BOLD);
+                  timerText.setGravity(Gravity.CENTER);
+                  timerText.setPadding(0, 0, 0, 30);
+
+                  // Message
                   messageText = new TextView(this);
                   messageText.setText("Tap Refresh to check activation");
                   messageText.setTextColor(Color.parseColor("#888888"));
-                  messageText.setTextSize(14);
+                  messageText.setTextSize(13);
                   messageText.setGravity(Gravity.CENTER);
-                  messageText.setPadding(0, 0, 0, 20);
+                  messageText.setPadding(0, 0, 0, 30);
 
-                  refreshBtn = new Button(this);
-                  refreshBtn.setText("REFRESH");
-                  refreshBtn.setTextColor(Color.parseColor("#0F121B"));
-                  refreshBtn.setBackgroundColor(Color.parseColor("#00D7FF"));
-                  refreshBtn.setTextSize(16);
-                  refreshBtn.setPadding(60, 20, 60, 20);
-
+                  // Connect layout
                   connectLayout = new LinearLayout(this);
                   connectLayout.setOrientation(LinearLayout.VERTICAL);
                   connectLayout.setGravity(Gravity.CENTER);
-                  connectLayout.setVisibility(android.view.View.GONE);
-
-                  statusText = new TextView(this);
-                  statusText.setText("● Disconnected");
-                  statusText.setTextColor(Color.RED);
-                  statusText.setTextSize(16);
-                  statusText.setGravity(Gravity.CENTER);
-                  statusText.setPadding(0, 20, 0, 20);
+                  connectLayout.setVisibility(View.GONE);
 
                   connectBtn = new Button(this);
                   connectBtn.setText("CONNECT");
                   connectBtn.setTextColor(Color.parseColor("#0F121B"));
                   connectBtn.setBackgroundColor(Color.parseColor("#00D7FF"));
-                  connectBtn.setTextSize(18);
-                  connectBtn.setPadding(60, 30, 60, 30);
-
-                  connectLayout.addView(statusText);
-                  connectLayout.addView(connectBtn);
-
-                  refreshBtn.setOnClickListener(v -> checkActivation());
+                  connectBtn.setTextSize(16);
+                  connectBtn.setTypeface(null, android.graphics.Typeface.BOLD);
+                  connectBtn.setPadding(80, 30, 80, 30);
                   connectBtn.setOnClickListener(v -> {
-                      if (!connected) startVpn();
-                      else stopVpn();
+                      if (!connected && !connecting) startVpn();
+                      else if (connected) stopVpn();
                   });
 
-                  layout.addView(title);
-                  layout.addView(macLabel);
-                  layout.addView(macText);
-                  layout.addView(messageText);
-                  layout.addView(refreshBtn);
-                  layout.addView(connectLayout);
-                  setContentView(layout);
+                  connectLayout.addView(connectBtn);
+
+                  // Bottom area
+                  LinearLayout bottom = new LinearLayout(this);
+                  bottom.setOrientation(LinearLayout.VERTICAL);
+                  bottom.setGravity(Gravity.CENTER);
+                  bottom.setPadding(40, 0, 40, 60);
+
+                  // Device ID
+                  TextView macLabel = new TextView(this);
+                  macLabel.setText("Device ID");
+                  macLabel.setTextColor(Color.parseColor("#555555"));
+                  macLabel.setTextSize(11);
+                  macLabel.setGravity(Gravity.CENTER);
+
+                  macText = new TextView(this);
+                  macText.setText(getMacAddress());
+                  macText.setTextColor(Color.parseColor("#00D7FF"));
+                  macText.setTextSize(12);
+                  macText.setGravity(Gravity.CENTER);
+                  macText.setPadding(0, 4, 0, 20);
+
+                  refreshBtn = new Button(this);
+                  refreshBtn.setText("REFRESH STATUS");
+                  refreshBtn.setTextColor(Color.parseColor("#00D7FF"));
+                  refreshBtn.setTextSize(13);
+                  refreshBtn.setPadding(40, 16, 40, 16);
+                  GradientDrawable refreshBg = new GradientDrawable();
+                  refreshBg.setShape(GradientDrawable.RECTANGLE);
+                  refreshBg.setColor(Color.TRANSPARENT);
+                  refreshBg.setStroke(2, Color.parseColor("#00D7FF"));
+                  refreshBg.setCornerRadius(8);
+                  refreshBtn.setBackground(refreshBg);
+                  refreshBtn.setOnClickListener(v -> checkActivation());
+
+                  bottom.addView(macLabel);
+                  bottom.addView(macText);
+                  bottom.addView(refreshBtn);
+
+                  center.addView(pulseContainer);
+                  center.addView(statusText);
+                  center.addView(timerText);
+                  center.addView(messageText);
+                  center.addView(connectLayout);
+
+                  main.addView(topBar);
+                  main.addView(center);
+                  main.addView(bottom);
+
+                  // Overlay for sidebar
+                  overlay = new LinearLayout(this);
+                  overlay.setBackgroundColor(Color.parseColor("#AA000000"));
+                  overlay.setVisibility(View.GONE);
+                  overlay.setOnClickListener(v -> closeSidebar());
+
+                  // Sidebar
+                  sidebar = new LinearLayout(this);
+                  sidebar.setOrientation(LinearLayout.VERTICAL);
+                  sidebar.setBackgroundColor(Color.parseColor("#161B27"));
+                  sidebar.setPadding(40, 80, 40, 40);
+                  FrameLayout.LayoutParams sidebarParams = new FrameLayout.LayoutParams(700, FrameLayout.LayoutParams.MATCH_PARENT);
+                  sidebarParams.gravity = Gravity.START;
+                  sidebar.setLayoutParams(sidebarParams);
+                  sidebar.setTranslationX(-700);
+
+                  sidebarTitle = new TextView(this);
+                  sidebarTitle.setText("BritishSub VPN");
+                  sidebarTitle.setTextColor(Color.parseColor("#00D7FF"));
+                  sidebarTitle.setTextSize(22);
+                  sidebarTitle.setTypeface(null, android.graphics.Typeface.BOLD);
+                  sidebarTitle.setPadding(0, 0, 0, 10);
+
+                  View divider = new View(this);
+                  divider.setBackgroundColor(Color.parseColor("#00D7FF33"));
+                  LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT, 2);
+                  dividerParams.setMargins(0, 10, 0, 40);
+                  divider.setLayoutParams(dividerParams);
+
+                  TextView contactTitle = new TextView(this);
+                  contactTitle.setText("Contact Us");
+                  contactTitle.setTextColor(Color.parseColor("#888888"));
+                  contactTitle.setTextSize(12);
+                  contactTitle.setPadding(0, 0, 0, 8);
+
+                  TextView emailText = new TextView(this);
+                  emailText.setText("✉  support@getbritishsub.com");
+                  emailText.setTextColor(Color.WHITE);
+                  emailText.setTextSize(14);
+                  emailText.setPadding(0, 0, 0, 40);
+                  emailText.setOnClickListener(v -> {
+                      Intent emailIntent = new Intent(Intent.ACTION_SENDTO);
+                      emailIntent.setData(android.net.Uri.parse("mailto:support@getbritishsub.com"));
+                      startActivity(emailIntent);
+                  });
+
+                  TextView versionText = new TextView(this);
+                  versionText.setText("Version 1.0");
+                  versionText.setTextColor(Color.parseColor("#555555"));
+                  versionText.setTextSize(12);
+
+                  sidebar.addView(sidebarTitle);
+                  sidebar.addView(divider);
+                  sidebar.addView(contactTitle);
+                  sidebar.addView(emailText);
+                  sidebar.addView(versionText);
+
+                  root.addView(main);
+                  root.addView(overlay);
+                  root.addView(sidebar);
+
+                  setContentView(root);
+              }
+
+              private View createRing(int size, int color) {
+                  View ring = new View(this);
+                  FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(size, size);
+                  params.gravity = Gravity.CENTER;
+                  ring.setLayoutParams(params);
+                  GradientDrawable drawable = new GradientDrawable();
+                  drawable.setShape(GradientDrawable.OVAL);
+                  drawable.setColor(color);
+                  ring.setBackground(drawable);
+                  return ring;
+              }
+
+              private void startPulseAnimation() {
+                  pulseAnimator = new AnimatorSet();
+
+                  ObjectAnimator scale1X = ObjectAnimator.ofFloat(pulseRing1, "scaleX", 1f, 1.15f, 1f);
+                  ObjectAnimator scale1Y = ObjectAnimator.ofFloat(pulseRing1, "scaleY", 1f, 1.15f, 1f);
+                  ObjectAnimator alpha1 = ObjectAnimator.ofFloat(pulseRing1, "alpha", 0.8f, 0.3f, 0.8f);
+
+                  ObjectAnimator scale2X = ObjectAnimator.ofFloat(pulseRing2, "scaleX", 1f, 1.2f, 1f);
+                  ObjectAnimator scale2Y = ObjectAnimator.ofFloat(pulseRing2, "scaleY", 1f, 1.2f, 1f);
+                  ObjectAnimator alpha2 = ObjectAnimator.ofFloat(pulseRing2, "alpha", 0.6f, 0.2f, 0.6f);
+
+                  ObjectAnimator scale3X = ObjectAnimator.ofFloat(pulseRing3, "scaleX", 1f, 1.25f, 1f);
+                  ObjectAnimator scale3Y = ObjectAnimator.ofFloat(pulseRing3, "scaleY", 1f, 1.25f, 1f);
+                  ObjectAnimator alpha3 = ObjectAnimator.ofFloat(pulseRing3, "alpha", 0.4f, 0.1f, 0.4f);
+
+                  scale1X.setDuration(2000); scale1X.setRepeatCount(ValueAnimator.INFINITE);
+                  scale1Y.setDuration(2000); scale1Y.setRepeatCount(ValueAnimator.INFINITE);
+                  alpha1.setDuration(2000); alpha1.setRepeatCount(ValueAnimator.INFINITE);
+
+                  scale2X.setDuration(2000); scale2X.setRepeatCount(ValueAnimator.INFINITE); scale2X.setStartDelay(200);
+                  scale2Y.setDuration(2000); scale2Y.setRepeatCount(ValueAnimator.INFINITE); scale2Y.setStartDelay(200);
+                  alpha2.setDuration(2000); alpha2.setRepeatCount(ValueAnimator.INFINITE); alpha2.setStartDelay(200);
+
+                  scale3X.setDuration(2000); scale3X.setRepeatCount(ValueAnimator.INFINITE); scale3X.setStartDelay(400);
+                  scale3Y.setDuration(2000); scale3Y.setRepeatCount(ValueAnimator.INFINITE); scale3Y.setStartDelay(400);
+                  alpha3.setDuration(2000); alpha3.setRepeatCount(ValueAnimator.INFINITE); alpha3.setStartDelay(400);
+
+                  pulseAnimator.playTogether(scale1X, scale1Y, alpha1, scale2X, scale2Y, alpha2, scale3X, scale3Y, alpha3);
+                  pulseAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
+                  pulseAnimator.start();
+              }
+
+              private void stopPulseAnimation() {
+                  if (pulseAnimator != null) pulseAnimator.cancel();
+                  pulseRing1.setScaleX(1f); pulseRing1.setScaleY(1f); pulseRing1.setAlpha(1f);
+                  pulseRing2.setScaleX(1f); pulseRing2.setScaleY(1f); pulseRing2.setAlpha(1f);
+                  pulseRing3.setScaleX(1f); pulseRing3.setScaleY(1f); pulseRing3.setAlpha(1f);
+              }
+
+              private void onConnected() {
+                  connected = true;
+                  connecting = false;
+                  connectBtn.setText("DISCONNECT");
+                  connectBtn.setBackgroundColor(Color.parseColor("#FF4444"));
+                  connectBtn.setTextColor(Color.WHITE);
+                  statusText.setText("CONNECTED");
+                  statusText.setTextColor(Color.parseColor("#00D7FF"));
+                  GradientDrawable connectedCircle = new GradientDrawable();
+                  connectedCircle.setShape(GradientDrawable.OVAL);
+                  connectedCircle.setColor(Color.parseColor("#00D7FF"));
+                  connectCircle.setBackground(connectedCircle);
+                  startPulseAnimation();
+                  startTime = System.currentTimeMillis();
+                  timerText.setTextColor(Color.parseColor("#00D7FF"));
+                  timerHandler.post(timerRunnable);
+              }
+
+              private void onDisconnected() {
+                  connected = false;
+                  connecting = false;
+                  connectBtn.setText("CONNECT");
+                  connectBtn.setBackgroundColor(Color.parseColor("#00D7FF"));
+                  connectBtn.setTextColor(Color.parseColor("#0F121B"));
+                  statusText.setText("DISCONNECTED");
+                  statusText.setTextColor(Color.parseColor("#FF4444"));
+                  GradientDrawable disconnectedCircle = new GradientDrawable();
+                  disconnectedCircle.setShape(GradientDrawable.OVAL);
+                  disconnectedCircle.setColor(Color.parseColor("#333333"));
+                  connectCircle.setBackground(disconnectedCircle);
+                  stopPulseAnimation();
+                  timerHandler.removeCallbacks(timerRunnable);
+                  timerText.setText("00:00:00");
+                  timerText.setTextColor(Color.parseColor("#888888"));
+              }
+
+              private void onConnecting() {
+                  connecting = true;
+                  connectBtn.setText("CONNECTING...");
+                  connectBtn.setBackgroundColor(Color.parseColor("#005566"));
+                  connectBtn.setTextColor(Color.parseColor("#00D7FF"));
+                  statusText.setText("CONNECTING");
+                  statusText.setTextColor(Color.parseColor("#00D7FF"));
+                  GradientDrawable connectingCircle = new GradientDrawable();
+                  connectingCircle.setShape(GradientDrawable.OVAL);
+                  connectingCircle.setColor(Color.parseColor("#005566"));
+                  connectCircle.setBackground(connectingCircle);
+                  startPulseAnimation();
+              }
+
+              private void openSidebar() {
+                  overlay.setVisibility(View.VISIBLE);
+                  sidebar.animate().translationX(0).setDuration(300).start();
+              }
+
+              private void closeSidebar() {
+                  sidebar.animate().translationX(-700).setDuration(300).withEndAction(() ->
+                      overlay.setVisibility(View.GONE)).start();
               }
 
               private void startVpn() {
+                  onConnecting();
                   Intent intent = VpnService.prepare(this);
                   if (intent != null) startActivityForResult(intent, VPN_REQUEST_CODE);
                   else onActivityResult(VPN_REQUEST_CODE, RESULT_OK, null);
@@ -379,6 +662,8 @@ jobs:
                       Intent intent = new Intent(this, BritishSubVpnService.class);
                       intent.setAction(BritishSubVpnService.ACTION_CONNECT);
                       startService(intent);
+                  } else {
+                      onDisconnected();
                   }
               }
 
@@ -390,33 +675,32 @@ jobs:
                       try {
                           OkHttpClient client = new OkHttpClient();
                           Request request = new Request.Builder()
-                              .url(API + "/check?mac=" + mac)
-                              .build();
+                              .url(API + "/check?mac=" + mac).build();
                           Response response = client.newCall(request).execute();
                           String body = response.body().string();
                           JSONObject json = new JSONObject(body);
                           runOnUiThread(() -> {
                               try {
                                   if (json.getBoolean("approved")) {
-                                      messageText.setText("Activated until " + json.getString("expiry"));
+                                      messageText.setText("✅ Active until " + json.getString("expiry"));
                                       messageText.setTextColor(Color.parseColor("#00D7FF"));
-                                      connectLayout.setVisibility(android.view.View.VISIBLE);
+                                      connectLayout.setVisibility(View.VISIBLE);
                                   } else {
-                                      messageText.setText(json.getString("reason"));
-                                      messageText.setTextColor(Color.RED);
-                                      connectLayout.setVisibility(android.view.View.GONE);
+                                      messageText.setText("❌ " + json.getString("reason"));
+                                      messageText.setTextColor(Color.parseColor("#FF4444"));
+                                      connectLayout.setVisibility(View.GONE);
                                   }
                               } catch (Exception e) {
                                   messageText.setText("Error: " + e.getMessage());
                               }
-                              refreshBtn.setText("REFRESH");
+                              refreshBtn.setText("REFRESH STATUS");
                               refreshBtn.setEnabled(true);
                           });
                       } catch (Exception e) {
                           runOnUiThread(() -> {
                               messageText.setText("Connection error. Try again.");
-                              messageText.setTextColor(Color.RED);
-                              refreshBtn.setText("REFRESH");
+                              messageText.setTextColor(Color.parseColor("#FF4444"));
+                              refreshBtn.setText("REFRESH STATUS");
                               refreshBtn.setEnabled(true);
                           });
                       }
@@ -442,6 +726,7 @@ jobs:
               @Override
               protected void onDestroy() {
                   unregisterReceiver(vpnReceiver);
+                  timerHandler.removeCallbacks(timerRunnable);
                   super.onDestroy();
               }
           }
@@ -452,6 +737,8 @@ jobs:
           <resources>
               <style name="AppTheme" parent="Theme.AppCompat.Light.NoActionBar">
                   <item name="colorPrimary">#00D7FF</item>
+                  <item name="android:windowBackground">#0F121B</item>
+                  <item name="android:statusBarColor">#0F121B</item>
               </style>
           </resources>
           EOF
