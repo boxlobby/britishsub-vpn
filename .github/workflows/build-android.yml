@@ -61,6 +61,7 @@ jobs:
               id 'com.android.application'
           }
           android {
+              namespace 'com.britishsub.vpn'
               compileSdkVersion 34
               defaultConfig {
                   applicationId "com.britishsub.vpn"
@@ -111,8 +112,7 @@ jobs:
 
           cat > britishsub-app/app/src/main/AndroidManifest.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
-          <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-              package="com.britishsub.vpn">
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
               <uses-permission android:name="android.permission.INTERNET"/>
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
               <application
@@ -143,30 +143,30 @@ jobs:
           package com.britishsub.vpn;
 
           import android.content.Intent;
-          import android.os.Binder;
-          import android.os.IBinder;
           import android.util.Log;
           import com.wireguard.android.backend.GoBackend;
           import com.wireguard.android.backend.Tunnel;
           import com.wireguard.config.Config;
-          import com.wireguard.config.Interface;
-          import com.wireguard.config.Peer;
-          import com.wireguard.crypto.Key;
-          import com.wireguard.crypto.KeyPair;
 
-          import java.net.InetAddress;
-          import java.util.Collections;
+          import java.io.BufferedReader;
+          import java.io.StringReader;
 
           public class BritishSubVpnService extends android.net.VpnService {
               private static final String TAG = "BritishSubVPN";
               public static final String ACTION_CONNECT = "com.britishsub.vpn.CONNECT";
               public static final String ACTION_DISCONNECT = "com.britishsub.vpn.DISCONNECT";
 
-              private static final String CLIENT_PRIVATE_KEY = "uNNN8NPjhqASHHIlDLw+14eyPH/uk8x/INu9qTuklW8=";
-              private static final String SERVER_PUBLIC_KEY = "0ZgusCEXOLYtAM/7hEGDKwqub6GsPiGdUpDkISSqEjY=";
-              private static final String SERVER_ENDPOINT = "95.179.237.55:51820";
-              private static final String CLIENT_ADDRESS = "10.0.0.2/32";
-              private static final String DNS = "1.1.1.1";
+              private static final String WG_CONFIG =
+                  "[Interface]\n" +
+                  "PrivateKey = uNNN8NPjhqASHHIlDLw+14eyPH/uk8x/INu9qTuklW8=\n" +
+                  "Address = 10.0.0.2/32\n" +
+                  "DNS = 1.1.1.1\n" +
+                  "\n" +
+                  "[Peer]\n" +
+                  "PublicKey = 0ZgusCEXOLYtAM/7hEGDKwqub6GsPiGdUpDkISSqEjY=\n" +
+                  "Endpoint = 95.179.237.55:51820\n" +
+                  "AllowedIPs = 0.0.0.0/0\n" +
+                  "PersistentKeepalive = 25\n";
 
               private GoBackend backend;
               private Tunnel tunnel;
@@ -184,20 +184,7 @@ jobs:
               private void connect() {
                   try {
                       backend = new GoBackend(this);
-
-                      Config config = new Config.Builder()
-                          .setInterface(new Interface.Builder()
-                              .parsePrivateKey(CLIENT_PRIVATE_KEY)
-                              .parseAddresses(CLIENT_ADDRESS)
-                              .parseDnsServers(DNS)
-                              .build())
-                          .addPeer(new Peer.Builder()
-                              .parsePublicKey(SERVER_PUBLIC_KEY)
-                              .parseEndpoint(SERVER_ENDPOINT)
-                              .parseAllowedIPs("0.0.0.0/0")
-                              .setPersistentKeepalive(25)
-                              .build())
-                          .build();
+                      Config config = Config.parse(new BufferedReader(new StringReader(WG_CONFIG)));
 
                       tunnel = new Tunnel() {
                           @Override
@@ -205,12 +192,11 @@ jobs:
 
                           @Override
                           public void onStateChange(State state) {
-                              Intent broadcast = new Intent(
+                              sendBroadcast(new Intent(
                                   state == State.UP ?
                                   "com.britishsub.vpn.VPN_CONNECTED" :
                                   "com.britishsub.vpn.VPN_DISCONNECTED"
-                              );
-                              sendBroadcast(broadcast);
+                              ));
                           }
                       };
 
@@ -219,6 +205,7 @@ jobs:
                   } catch (Exception e) {
                       Log.e(TAG, "Connect error: " + e.getMessage());
                       sendBroadcast(new Intent("com.britishsub.vpn.VPN_DISCONNECTED"));
+                      stopSelf();
                   }
               }
 
@@ -411,11 +398,11 @@ jobs:
                           runOnUiThread(() -> {
                               try {
                                   if (json.getBoolean("approved")) {
-                                      messageText.setText("✅ Activated until " + json.getString("expiry"));
+                                      messageText.setText("Activated until " + json.getString("expiry"));
                                       messageText.setTextColor(Color.parseColor("#00D7FF"));
                                       connectLayout.setVisibility(android.view.View.VISIBLE);
                                   } else {
-                                      messageText.setText("❌ " + json.getString("reason"));
+                                      messageText.setText(json.getString("reason"));
                                       messageText.setTextColor(Color.RED);
                                       connectLayout.setVisibility(android.view.View.GONE);
                                   }
