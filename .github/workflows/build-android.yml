@@ -37,6 +37,8 @@ jobs:
             cp /tmp/icon.png britishsub-app/app/src/main/res/mipmap-${dir}/ic_launcher.png
             cp /tmp/icon.png britishsub-app/app/src/main/res/mipmap-${dir}/ic_launcher_round.png
           done
+          mkdir -p britishsub-app/app/src/main/assets
+          cp /tmp/icon.png britishsub-app/app/src/main/assets/crown.png
 
       - name: Create full project
         run: |
@@ -194,34 +196,38 @@ jobs:
               }
 
               private void connect() {
-                  try {
-                      backend = new GoBackend(this);
-                      Config config = Config.parse(new BufferedReader(new StringReader(WG_CONFIG)));
-                      tunnel = new Tunnel() {
-                          @Override public String getName() { return "BritishSub"; }
-                          @Override public void onStateChange(State state) {
-                              sendBroadcast(new Intent(state == State.UP ?
-                                  "com.britishsub.vpn.VPN_CONNECTED" :
-                                  "com.britishsub.vpn.VPN_DISCONNECTED"));
-                          }
-                      };
-                      backend.setState(tunnel, Tunnel.State.UP, config);
-                  } catch (Exception e) {
-                      Log.e(TAG, "Connect error: " + e.getMessage());
-                      sendBroadcast(new Intent("com.britishsub.vpn.VPN_DISCONNECTED"));
-                      stopSelf();
-                  }
+                  new Thread(() -> {
+                      try {
+                          backend = new GoBackend(this);
+                          Config config = Config.parse(new BufferedReader(new StringReader(WG_CONFIG)));
+                          tunnel = new Tunnel() {
+                              @Override public String getName() { return "BritishSub"; }
+                              @Override public void onStateChange(State state) {
+                                  sendBroadcast(new Intent(state == State.UP ?
+                                      "com.britishsub.vpn.VPN_CONNECTED" :
+                                      "com.britishsub.vpn.VPN_DISCONNECTED"));
+                              }
+                          };
+                          backend.setState(tunnel, Tunnel.State.UP, config);
+                      } catch (Exception e) {
+                          Log.e(TAG, "Connect error: " + e.getMessage());
+                          sendBroadcast(new Intent("com.britishsub.vpn.VPN_DISCONNECTED"));
+                          stopSelf();
+                      }
+                  }).start();
               }
 
               private void disconnect() {
-                  try {
-                      if (backend != null && tunnel != null)
-                          backend.setState(tunnel, Tunnel.State.DOWN, null);
-                  } catch (Exception e) {
-                      Log.e(TAG, "Disconnect error: " + e.getMessage());
-                  }
-                  sendBroadcast(new Intent("com.britishsub.vpn.VPN_DISCONNECTED"));
-                  stopSelf();
+                  new Thread(() -> {
+                      try {
+                          if (backend != null && tunnel != null)
+                              backend.setState(tunnel, Tunnel.State.DOWN, null);
+                      } catch (Exception e) {
+                          Log.e(TAG, "Disconnect error: " + e.getMessage());
+                      }
+                      sendBroadcast(new Intent("com.britishsub.vpn.VPN_DISCONNECTED"));
+                      stopSelf();
+                  }).start();
               }
 
               @Override public void onDestroy() { disconnect(); super.onDestroy(); }
@@ -239,6 +245,8 @@ jobs:
           import android.content.Context;
           import android.content.Intent;
           import android.content.IntentFilter;
+          import android.graphics.Bitmap;
+          import android.graphics.BitmapFactory;
           import android.graphics.Color;
           import android.graphics.Typeface;
           import android.graphics.drawable.GradientDrawable;
@@ -263,7 +271,6 @@ jobs:
               private static final int VPN_REQUEST_CODE = 1;
               private boolean connected = false;
               private boolean connecting = false;
-              private boolean sidebarOpen = false;
 
               private View powerBtn, ring1, ring2, ring3, overlayView;
               private TextView statusText, timerText, messageText, macSidebarText, expiryText;
@@ -303,7 +310,7 @@ jobs:
                   f.addAction("com.britishsub.vpn.VPN_DISCONNECTED");
                   registerReceiver(vpnReceiver, f);
 
-                  android.widget.FrameLayout root = new android.widget.FrameLayout(this);
+                  FrameLayout root = new FrameLayout(this);
                   root.setBackgroundColor(Color.parseColor("#0A0D1A"));
 
                   LinearLayout main = new LinearLayout(this);
@@ -316,11 +323,9 @@ jobs:
                   topBar.setGravity(Gravity.CENTER_VERTICAL);
                   topBar.setPadding(dp(20), dp(52), dp(20), dp(16));
 
-                  // Hamburger LEFT
                   LinearLayout hamburger = buildHamburger();
                   hamburger.setOnClickListener(v -> openSidebar());
 
-                  // Logo center
                   LinearLayout logoArea = new LinearLayout(this);
                   logoArea.setOrientation(LinearLayout.HORIZONTAL);
                   logoArea.setGravity(Gravity.CENTER);
@@ -329,13 +334,12 @@ jobs:
 
                   ImageView logoImg = new ImageView(this);
                   try {
-                      android.graphics.BitmapFactory.Options opts = new android.graphics.BitmapFactory.Options();
-                      android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeStream(getAssets().open("crown.png"), null, opts);
+                      Bitmap bmp = BitmapFactory.decodeStream(getAssets().open("crown.png"));
                       logoImg.setImageBitmap(bmp);
-                  } catch (Exception e) { }
-                  LinearLayout.LayoutParams imgParams = new LinearLayout.LayoutParams(dp(28), dp(28));
-                  imgParams.setMargins(0, 0, dp(8), 0);
-                  logoImg.setLayoutParams(imgParams);
+                  } catch (Exception e) {}
+                  LinearLayout.LayoutParams imgP = new LinearLayout.LayoutParams(dp(28), dp(28));
+                  imgP.setMargins(0, 0, dp(8), 0);
+                  logoImg.setLayoutParams(imgP);
                   logoImg.setScaleType(ImageView.ScaleType.FIT_CENTER);
 
                   TextView logoText = new TextView(this);
@@ -347,7 +351,6 @@ jobs:
                   logoArea.addView(logoImg);
                   logoArea.addView(logoText);
 
-                  // Spacer right
                   View spacer = new View(this);
                   spacer.setLayoutParams(new LinearLayout.LayoutParams(dp(44), dp(44)));
 
@@ -356,8 +359,8 @@ jobs:
                   topBar.addView(spacer);
 
                   // PULSE AREA
-                  android.widget.FrameLayout pulseWrap = new android.widget.FrameLayout(this);
-                  android.widget.FrameLayout.LayoutParams pwp = new android.widget.FrameLayout.LayoutParams(dp(260), dp(260));
+                  FrameLayout pulseWrap = new FrameLayout(this);
+                  FrameLayout.LayoutParams pwp = new FrameLayout.LayoutParams(dp(260), dp(260));
                   pwp.gravity = Gravity.CENTER_HORIZONTAL;
                   pulseWrap.setLayoutParams(pwp);
 
@@ -365,8 +368,7 @@ jobs:
                   ring2 = makeRing(dp(200), "#00D7FF22");
                   ring3 = makeRing(dp(140), "#00D7FF33");
 
-                  // Power button circle
-                  android.widget.FrameLayout.LayoutParams btnP = new android.widget.FrameLayout.LayoutParams(dp(100), dp(100));
+                  FrameLayout.LayoutParams btnP = new FrameLayout.LayoutParams(dp(100), dp(100));
                   btnP.gravity = Gravity.CENTER;
                   powerBtn = new View(this);
                   powerBtn.setLayoutParams(btnP);
@@ -376,8 +378,7 @@ jobs:
                   btnBg.setStroke(dp(2), Color.parseColor("#00D7FF"));
                   powerBtn.setBackground(btnBg);
 
-                  // Power icon SVG path drawn on canvas overlay
-                  android.widget.FrameLayout.LayoutParams iconP = new android.widget.FrameLayout.LayoutParams(dp(100), dp(100));
+                  FrameLayout.LayoutParams iconP = new FrameLayout.LayoutParams(dp(100), dp(100));
                   iconP.gravity = Gravity.CENTER;
                   TextView powerIcon = new TextView(this);
                   powerIcon.setLayoutParams(iconP);
@@ -393,7 +394,7 @@ jobs:
                   pulseWrap.addView(powerBtn);
                   pulseWrap.addView(powerIcon);
 
-                  // CENTER CONTENT
+                  // CENTER
                   LinearLayout center = new LinearLayout(this);
                   center.setOrientation(LinearLayout.VERTICAL);
                   center.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -401,10 +402,8 @@ jobs:
                       LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f);
                   center.setLayoutParams(cp);
                   center.setPadding(dp(24), dp(16), dp(24), 0);
-
                   center.addView(pulseWrap);
 
-                  // Status
                   statusText = new TextView(this);
                   statusText.setText("DISCONNECTED");
                   statusText.setTextColor(Color.parseColor("#FF4444"));
@@ -415,7 +414,6 @@ jobs:
                   statusText.setPadding(0, dp(20), 0, dp(4));
                   center.addView(statusText);
 
-                  // Timer
                   timerText = new TextView(this);
                   timerText.setText("00:00:00");
                   timerText.setTextColor(Color.parseColor("#333D52"));
@@ -426,7 +424,6 @@ jobs:
                   timerText.setPadding(0, 0, 0, dp(24));
                   center.addView(timerText);
 
-                  // Message
                   messageText = new TextView(this);
                   messageText.setText("Tap Refresh to check your activation");
                   messageText.setTextColor(Color.parseColor("#4A5568"));
@@ -435,25 +432,24 @@ jobs:
                   messageText.setPadding(dp(32), 0, dp(32), dp(20));
                   center.addView(messageText);
 
-                  // Connect layout
                   connectLayout = new LinearLayout(this);
                   connectLayout.setOrientation(LinearLayout.VERTICAL);
                   connectLayout.setGravity(Gravity.CENTER_HORIZONTAL);
                   connectLayout.setVisibility(View.GONE);
 
+                  FrameLayout btnFrame = new FrameLayout(this);
+                  btnFrame.setLayoutParams(new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT, dp(56)));
+
                   connectBtnWrapper = new View(this);
-                  LinearLayout.LayoutParams cbwp = new LinearLayout.LayoutParams(
-                      LinearLayout.LayoutParams.MATCH_PARENT, dp(56));
-                  connectBtnWrapper.setLayoutParams(cbwp);
+                  connectBtnWrapper.setLayoutParams(new FrameLayout.LayoutParams(
+                      FrameLayout.LayoutParams.MATCH_PARENT,
+                      FrameLayout.LayoutParams.MATCH_PARENT));
                   GradientDrawable cBg = new GradientDrawable();
                   cBg.setShape(GradientDrawable.RECTANGLE);
                   cBg.setCornerRadius(dp(14));
                   cBg.setColor(Color.parseColor("#00D7FF"));
                   connectBtnWrapper.setBackground(cBg);
-
-                  android.widget.FrameLayout btnFrame = new android.widget.FrameLayout(this);
-                  btnFrame.setLayoutParams(new LinearLayout.LayoutParams(
-                      LinearLayout.LayoutParams.MATCH_PARENT, dp(56)));
 
                   connectBtnText = new TextView(this);
                   connectBtnText.setText("CONNECT");
@@ -462,9 +458,9 @@ jobs:
                   connectBtnText.setTypeface(null, Typeface.BOLD);
                   connectBtnText.setLetterSpacing(0.1f);
                   connectBtnText.setGravity(Gravity.CENTER);
-                  connectBtnText.setLayoutParams(new android.widget.FrameLayout.LayoutParams(
-                      android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                      android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+                  connectBtnText.setLayoutParams(new FrameLayout.LayoutParams(
+                      FrameLayout.LayoutParams.MATCH_PARENT,
+                      FrameLayout.LayoutParams.MATCH_PARENT));
 
                   btnFrame.addView(connectBtnWrapper);
                   btnFrame.addView(connectBtnText);
@@ -488,15 +484,14 @@ jobs:
                   bottom.setGravity(Gravity.CENTER_HORIZONTAL);
                   bottom.setPadding(dp(24), dp(16), dp(24), dp(40));
 
-                  // Refresh button
-                  android.widget.FrameLayout refreshFrame = new android.widget.FrameLayout(this);
+                  FrameLayout refreshFrame = new FrameLayout(this);
                   refreshFrame.setLayoutParams(new LinearLayout.LayoutParams(
                       LinearLayout.LayoutParams.MATCH_PARENT, dp(50)));
 
                   View refreshBg = new View(this);
-                  refreshBg.setLayoutParams(new android.widget.FrameLayout.LayoutParams(
-                      android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                      android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+                  refreshBg.setLayoutParams(new FrameLayout.LayoutParams(
+                      FrameLayout.LayoutParams.MATCH_PARENT,
+                      FrameLayout.LayoutParams.MATCH_PARENT));
                   GradientDrawable rBg = new GradientDrawable();
                   rBg.setShape(GradientDrawable.RECTANGLE);
                   rBg.setCornerRadius(dp(12));
@@ -511,30 +506,27 @@ jobs:
                   refreshText.setTypeface(null, Typeface.BOLD);
                   refreshText.setLetterSpacing(0.1f);
                   refreshText.setGravity(Gravity.CENTER);
-                  refreshText.setLayoutParams(new android.widget.FrameLayout.LayoutParams(
-                      android.widget.FrameLayout.LayoutParams.MATCH_PARENT,
-                      android.widget.FrameLayout.LayoutParams.MATCH_PARENT));
+                  refreshText.setLayoutParams(new FrameLayout.LayoutParams(
+                      FrameLayout.LayoutParams.MATCH_PARENT,
+                      FrameLayout.LayoutParams.MATCH_PARENT));
 
                   refreshFrame.addView(refreshBg);
                   refreshFrame.addView(refreshText);
                   refreshFrame.setOnClickListener(v -> checkActivation());
 
                   bottom.addView(refreshFrame);
-
                   main.addView(topBar);
                   main.addView(center);
                   main.addView(bottom);
 
-                  // OVERLAY
                   overlayView = new View(this);
                   overlayView.setBackgroundColor(Color.parseColor("#AA000000"));
                   overlayView.setVisibility(View.GONE);
                   overlayView.setOnClickListener(v -> closeSidebar());
 
-                  // SIDEBAR
                   sidebarLayout = buildSidebar();
-                  android.widget.FrameLayout.LayoutParams slp = new android.widget.FrameLayout.LayoutParams(
-                      dp(280), android.widget.FrameLayout.LayoutParams.MATCH_PARENT);
+                  FrameLayout.LayoutParams slp = new FrameLayout.LayoutParams(
+                      dp(280), FrameLayout.LayoutParams.MATCH_PARENT);
                   slp.gravity = Gravity.START;
                   sidebarLayout.setLayoutParams(slp);
                   sidebarLayout.setTranslationX(-dp(280));
@@ -542,7 +534,6 @@ jobs:
                   root.addView(main);
                   root.addView(overlayView);
                   root.addView(sidebarLayout);
-
                   setContentView(root);
               }
 
@@ -552,7 +543,7 @@ jobs:
 
               private View makeRing(int size, String color) {
                   View v = new View(this);
-                  android.widget.FrameLayout.LayoutParams p = new android.widget.FrameLayout.LayoutParams(size, size);
+                  FrameLayout.LayoutParams p = new FrameLayout.LayoutParams(size, size);
                   p.gravity = Gravity.CENTER;
                   v.setLayoutParams(p);
                   GradientDrawable d = new GradientDrawable();
@@ -566,8 +557,7 @@ jobs:
                   LinearLayout h = new LinearLayout(this);
                   h.setOrientation(LinearLayout.VERTICAL);
                   h.setGravity(Gravity.CENTER);
-                  LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(dp(44), dp(44));
-                  h.setLayoutParams(hp);
+                  h.setLayoutParams(new LinearLayout.LayoutParams(dp(44), dp(44)));
                   GradientDrawable hBg = new GradientDrawable();
                   hBg.setShape(GradientDrawable.RECTANGLE);
                   hBg.setCornerRadius(dp(10));
@@ -595,13 +585,6 @@ jobs:
                   s.setBackgroundColor(Color.parseColor("#0D1520"));
                   s.setPadding(dp(24), dp(60), dp(24), dp(40));
 
-                  GradientDrawable sBorder = new GradientDrawable();
-                  sBorder.setShape(GradientDrawable.RECTANGLE);
-                  sBorder.setColor(Color.parseColor("#0D1520"));
-                  sBorder.setStroke(1, Color.parseColor("#1E2D3D"));
-                  s.setBackground(sBorder);
-
-                  // Logo in sidebar
                   LinearLayout sLogoRow = new LinearLayout(this);
                   sLogoRow.setOrientation(LinearLayout.HORIZONTAL);
                   sLogoRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -609,7 +592,7 @@ jobs:
 
                   ImageView sLogoImg = new ImageView(this);
                   try {
-                      android.graphics.Bitmap bmp = android.graphics.BitmapFactory.decodeStream(getAssets().open("crown.png"));
+                      Bitmap bmp = BitmapFactory.decodeStream(getAssets().open("crown.png"));
                       sLogoImg.setImageBitmap(bmp);
                   } catch (Exception e) {}
                   LinearLayout.LayoutParams sImgP = new LinearLayout.LayoutParams(dp(24), dp(24));
@@ -627,22 +610,15 @@ jobs:
                   sLogoRow.addView(sLogoText);
 
                   View divider = new View(this);
-                  LinearLayout.LayoutParams dp2 = new LinearLayout.LayoutParams(
+                  LinearLayout.LayoutParams divP = new LinearLayout.LayoutParams(
                       LinearLayout.LayoutParams.MATCH_PARENT, 1);
-                  dp2.setMargins(0, 0, 0, dp(28));
-                  divider.setLayoutParams(dp2);
+                  divP.setMargins(0, 0, 0, dp(28));
+                  divider.setLayoutParams(divP);
                   divider.setBackgroundColor(Color.parseColor("#1E2D3D"));
 
-                  // Status row
-                  TextView statusLabel = makeSidebarLabel("CONNECTION");
-                  TextView statusVal = makeSidebarValue("Disconnected");
-                  statusVal.setTextColor(Color.parseColor("#FF4444"));
-
-                  // MAC row (hidden by default, shown in sidebar)
                   TextView macLabel = makeSidebarLabel("DEVICE ID");
                   macSidebarText = makeSidebarValue(macAddress);
 
-                  // Expiry row
                   TextView expiryLabel = makeSidebarLabel("SUBSCRIPTION");
                   expiryText = makeSidebarValue("Not activated");
 
@@ -653,7 +629,6 @@ jobs:
                   div2.setLayoutParams(d2p);
                   div2.setBackgroundColor(Color.parseColor("#1E2D3D"));
 
-                  // Contact
                   TextView contactLabel = makeSidebarLabel("SUPPORT");
                   TextView emailVal = makeSidebarValue("support@getbritishsub.com");
                   emailVal.setTextColor(Color.parseColor("#00D7FF"));
@@ -663,7 +638,6 @@ jobs:
                       startActivity(i);
                   });
 
-                  // Version
                   View div3 = new View(this);
                   LinearLayout.LayoutParams d3p = new LinearLayout.LayoutParams(
                       LinearLayout.LayoutParams.MATCH_PARENT, 1);
@@ -678,9 +652,6 @@ jobs:
 
                   s.addView(sLogoRow);
                   s.addView(divider);
-                  s.addView(statusLabel);
-                  s.addView(statusVal);
-                  s.addView(makeSpacer());
                   s.addView(macLabel);
                   s.addView(macSidebarText);
                   s.addView(makeSpacer());
@@ -691,7 +662,6 @@ jobs:
                   s.addView(emailVal);
                   s.addView(div3);
                   s.addView(version);
-
                   return s;
               }
 
@@ -726,7 +696,6 @@ jobs:
               }
 
               private void openSidebar() {
-                  sidebarOpen = true;
                   overlayView.setVisibility(View.VISIBLE);
                   overlayView.setAlpha(0f);
                   overlayView.animate().alpha(1f).setDuration(250).start();
@@ -735,7 +704,6 @@ jobs:
               }
 
               private void closeSidebar() {
-                  sidebarOpen = false;
                   sidebarLayout.animate().translationX(-dp(280)).setDuration(250)
                       .setInterpolator(new DecelerateInterpolator())
                       .withEndAction(() -> overlayView.setVisibility(View.GONE)).start();
@@ -793,10 +761,6 @@ jobs:
                   pBg.setColor(Color.parseColor("#0A2020"));
                   pBg.setStroke(dp(2), Color.parseColor("#00D7FF"));
                   powerBtn.setBackground(pBg);
-                  // Update sidebar
-                  if (macSidebarText != null) {
-                      TextView sv = (TextView) ((LinearLayout)sidebarLayout).getChildAt(4);
-                  }
                   startPulse();
                   startTime = System.currentTimeMillis();
                   timerHandler.post(timerRunnable);
@@ -825,21 +789,27 @@ jobs:
               }
 
               private void startVpn() {
-                  connecting = true;
-                  statusText.setText("CONNECTING...");
-                  statusText.setTextColor(Color.parseColor("#00D7FF"));
-                  connectBtnText.setText("CONNECTING...");
-                  connectBtnText.setTextColor(Color.parseColor("#00D7FF"));
-                  GradientDrawable cgBg = new GradientDrawable();
-                  cgBg.setShape(GradientDrawable.RECTANGLE);
-                  cgBg.setCornerRadius(dp(14));
-                  cgBg.setColor(Color.parseColor("#0A2030"));
-                  cgBg.setStroke(dp(1), Color.parseColor("#00D7FF44"));
-                  connectBtnWrapper.setBackground(cgBg);
-                  startPulse();
-                  Intent intent = VpnService.prepare(this);
-                  if (intent != null) startActivityForResult(intent, VPN_REQUEST_CODE);
-                  else onActivityResult(VPN_REQUEST_CODE, RESULT_OK, null);
+                  try {
+                      connecting = true;
+                      statusText.setText("CONNECTING...");
+                      statusText.setTextColor(Color.parseColor("#00D7FF"));
+                      connectBtnText.setText("CONNECTING...");
+                      connectBtnText.setTextColor(Color.parseColor("#00D7FF"));
+                      GradientDrawable cgBg = new GradientDrawable();
+                      cgBg.setShape(GradientDrawable.RECTANGLE);
+                      cgBg.setCornerRadius(dp(14));
+                      cgBg.setColor(Color.parseColor("#0A2030"));
+                      cgBg.setStroke(dp(1), Color.parseColor("#00D7FF44"));
+                      connectBtnWrapper.setBackground(cgBg);
+                      startPulse();
+                      Intent intent = VpnService.prepare(this);
+                      if (intent != null) startActivityForResult(intent, VPN_REQUEST_CODE);
+                      else onActivityResult(VPN_REQUEST_CODE, RESULT_OK, null);
+                  } catch (Exception e) {
+                      onDisconnected();
+                      messageText.setText("Error: " + e.getMessage());
+                      messageText.setTextColor(Color.parseColor("#FF4444"));
+                  }
               }
 
               private void stopVpn() {
@@ -928,11 +898,6 @@ jobs:
               </style>
           </resources>
           EOF
-
-          # Copy logo to assets
-          mkdir -p britishsub-app/app/src/main/assets
-          curl -L "https://pub-f723409cbfab46caa18309b26581197b.r2.dev/favicon.png" \
-            -o britishsub-app/app/src/main/assets/crown.png
 
       - name: Build APK
         run: |
