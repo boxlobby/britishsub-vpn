@@ -31,6 +31,7 @@ jobs:
         run: |
           mkdir -p britishsub-app/app/src/main/java/com/britishsub/vpn
           mkdir -p britishsub-app/app/src/main/res/values
+          mkdir -p britishsub-app/app/src/main/res/raw
           mkdir -p britishsub-app/gradle/wrapper
 
           cat > britishsub-app/settings.gradle << 'EOF'
@@ -108,12 +109,26 @@ jobs:
           zipStorePath=wrapper/dists
           EOF
 
+          cat > britishsub-app/app/src/main/res/raw/wg_config.conf << 'EOF'
+          [Interface]
+          PrivateKey = uNNN8NPjhqASHHIlDLw+14eyPH/uk8x/INu9qTuklW8=
+          Address = 10.0.0.2/32
+          DNS = 1.1.1.1
+
+          [Peer]
+          PublicKey = 0ZgusCEXOLYtAM/7hEGDKwqub6GsPiGdUpDkISSqEjY=
+          Endpoint = 95.179.237.55:51820
+          AllowedIPs = 0.0.0.0/0
+          PersistentKeepalive = 25
+          EOF
+
           cat > britishsub-app/app/src/main/AndroidManifest.xml << 'EOF'
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android"
               package="com.britishsub.vpn">
               <uses-permission android:name="android.permission.INTERNET"/>
               <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+              <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
               <application
                   android:allowBackup="true"
                   android:label="BritishSub VPN"
@@ -126,137 +141,25 @@ jobs:
                           <category android:name="android.intent.category.LAUNCHER"/>
                       </intent-filter>
                   </activity>
-                  <service
-                      android:name=".BritishSubVpnService"
-                      android:permission="android.permission.BIND_VPN_SERVICE"
-                      android:exported="false">
-                      <intent-filter>
-                          <action android:name="android.net.VpnService"/>
-                      </intent-filter>
-                  </service>
               </application>
           </manifest>
-          EOF
-
-          cat > britishsub-app/app/src/main/java/com/britishsub/vpn/BritishSubVpnService.java << 'EOF'
-          package com.britishsub.vpn;
-
-          import android.content.Intent;
-          import android.net.VpnService;
-          import android.os.ParcelFileDescriptor;
-          import android.util.Log;
-          import java.io.*;
-          import java.net.*;
-
-          public class BritishSubVpnService extends VpnService {
-              private static final String TAG = "BritishSubVPN";
-              private ParcelFileDescriptor vpnInterface;
-              private Thread vpnThread;
-              private boolean running = false;
-
-              public static final String ACTION_CONNECT = "com.britishsub.vpn.CONNECT";
-              public static final String ACTION_DISCONNECT = "com.britishsub.vpn.DISCONNECT";
-
-              private static final String SERVER_HOST = "95.179.237.55";
-              private static final int SERVER_PORT = 51820;
-
-              @Override
-              public int onStartCommand(Intent intent, int flags, int startId) {
-                  if (intent != null && ACTION_DISCONNECT.equals(intent.getAction())) {
-                      disconnect();
-                      return START_NOT_STICKY;
-                  }
-                  connect();
-                  return START_STICKY;
-              }
-
-              private void connect() {
-                  try {
-                      Builder builder = new Builder();
-                      builder.setMtu(1420);
-                      builder.addAddress("10.0.0.2", 32);
-                      builder.addDnsServer("1.1.1.1");
-                      builder.addDnsServer("8.8.8.8");
-                      builder.addRoute("0.0.0.0", 0);
-                      builder.setSession("BritishSub VPN");
-                      builder.setBlocking(true);
-                      vpnInterface = builder.establish();
-
-                      if (vpnInterface == null) {
-                          sendBroadcast(new Intent("com.britishsub.vpn.VPN_DISCONNECTED"));
-                          return;
-                      }
-
-                      running = true;
-                      vpnThread = new Thread(this::tunnel);
-                      vpnThread.start();
-                      sendBroadcast(new Intent("com.britishsub.vpn.VPN_CONNECTED"));
-
-                  } catch (Exception e) {
-                      Log.e(TAG, "Connect error: " + e.getMessage());
-                      disconnect();
-                  }
-              }
-
-              private void tunnel() {
-                  try {
-                      InetAddress serverAddr = InetAddress.getByName(SERVER_HOST);
-                      DatagramSocket udpSocket = new DatagramSocket();
-                      protect(udpSocket);
-                      udpSocket.connect(serverAddr, SERVER_PORT);
-                      udpSocket.setSoTimeout(100);
-
-                      FileInputStream in = new FileInputStream(vpnInterface.getFileDescriptor());
-                      FileOutputStream out = new FileOutputStream(vpnInterface.getFileDescriptor());
-                      byte[] buf = new byte[32767];
-
-                      while (running) {
-                          int len = in.read(buf);
-                          if (len > 0) {
-                              DatagramPacket pkt = new DatagramPacket(buf, len, serverAddr, SERVER_PORT);
-                              try { udpSocket.send(pkt); } catch (Exception ignored) {}
-                          }
-                          DatagramPacket recv = new DatagramPacket(buf, buf.length);
-                          try {
-                              udpSocket.receive(recv);
-                              if (recv.getLength() > 0) {
-                                  out.write(recv.getData(), 0, recv.getLength());
-                              }
-                          } catch (SocketTimeoutException ignored) {}
-                      }
-                      udpSocket.close();
-                  } catch (Exception e) {
-                      Log.e(TAG, "Tunnel error: " + e.getMessage());
-                      disconnect();
-                  }
-              }
-
-              private void disconnect() {
-                  running = false;
-                  if (vpnThread != null) { vpnThread.interrupt(); vpnThread = null; }
-                  try { if (vpnInterface != null) { vpnInterface.close(); vpnInterface = null; } } catch (Exception ignored) {}
-                  sendBroadcast(new Intent("com.britishsub.vpn.VPN_DISCONNECTED"));
-                  stopSelf();
-              }
-
-              @Override
-              public void onDestroy() { disconnect(); super.onDestroy(); }
-          }
           EOF
 
           cat > britishsub-app/app/src/main/java/com/britishsub/vpn/MainActivity.java << 'EOF'
           package com.britishsub.vpn;
 
           import android.app.Activity;
-          import android.content.BroadcastReceiver;
-          import android.content.Context;
+          import android.app.AlertDialog;
           import android.content.Intent;
-          import android.content.IntentFilter;
-          import android.net.VpnService;
+          import android.content.pm.PackageManager;
+          import android.net.Uri;
           import android.os.Bundle;
+          import android.os.Environment;
+          import android.provider.Settings;
           import android.widget.*;
           import android.graphics.Color;
           import android.view.Gravity;
+          import java.io.*;
           import java.net.NetworkInterface;
           import java.util.Collections;
           import java.util.List;
@@ -266,38 +169,17 @@ jobs:
           import org.json.JSONObject;
 
           public class MainActivity extends Activity {
-              private static final int VPN_REQUEST_CODE = 1;
-              private boolean connected = false;
               private Button connectBtn, refreshBtn;
               private TextView statusText, macText, messageText;
               private LinearLayout connectLayout;
+              private boolean isConnected = false;
               private static final String API = "https://britishsub-vpn-api.mounirmakerz.workers.dev";
-
-              private BroadcastReceiver vpnReceiver = new BroadcastReceiver() {
-                  @Override
-                  public void onReceive(Context context, Intent intent) {
-                      if ("com.britishsub.vpn.VPN_CONNECTED".equals(intent.getAction())) {
-                          connected = true;
-                          connectBtn.setText("DISCONNECT");
-                          statusText.setText("● Connected");
-                          statusText.setTextColor(Color.parseColor("#00D7FF"));
-                      } else if ("com.britishsub.vpn.VPN_DISCONNECTED".equals(intent.getAction())) {
-                          connected = false;
-                          connectBtn.setText("CONNECT");
-                          statusText.setText("● Disconnected");
-                          statusText.setTextColor(Color.RED);
-                      }
-                  }
-              };
+              private static final String WG_PACKAGE = "com.wireguard.android";
+              private static final int INSTALL_REQUEST = 100;
 
               @Override
               protected void onCreate(Bundle savedInstanceState) {
                   super.onCreate(savedInstanceState);
-
-                  IntentFilter filter = new IntentFilter();
-                  filter.addAction("com.britishsub.vpn.VPN_CONNECTED");
-                  filter.addAction("com.britishsub.vpn.VPN_DISCONNECTED");
-                  registerReceiver(vpnReceiver, filter);
 
                   LinearLayout layout = new LinearLayout(this);
                   layout.setOrientation(LinearLayout.VERTICAL);
@@ -363,8 +245,8 @@ jobs:
 
                   refreshBtn.setOnClickListener(v -> checkActivation());
                   connectBtn.setOnClickListener(v -> {
-                      if (!connected) startVpn();
-                      else stopVpn();
+                      if (!isConnected) connectVpn();
+                      else disconnectVpn();
                   });
 
                   layout.addView(title);
@@ -376,24 +258,88 @@ jobs:
                   setContentView(layout);
               }
 
-              private void startVpn() {
-                  Intent intent = VpnService.prepare(this);
-                  if (intent != null) startActivityForResult(intent, VPN_REQUEST_CODE);
-                  else onActivityResult(VPN_REQUEST_CODE, RESULT_OK, null);
+              private boolean isWireGuardInstalled() {
+                  try {
+                      getPackageManager().getPackageInfo(WG_PACKAGE, 0);
+                      return true;
+                  } catch (PackageManager.NameNotFoundException e) {
+                      return false;
+                  }
               }
 
-              private void stopVpn() {
-                  Intent intent = new Intent(this, BritishSubVpnService.class);
-                  intent.setAction(BritishSubVpnService.ACTION_DISCONNECT);
-                  startService(intent);
+              private void connectVpn() {
+                  if (!isWireGuardInstalled()) {
+                      showInstallWireGuardDialog();
+                      return;
+                  }
+                  importAndConnect();
+              }
+
+              private void showInstallWireGuardDialog() {
+                  new AlertDialog.Builder(this)
+                      .setTitle("Setup Required")
+                      .setMessage("BritishSub VPN needs to install a small component to connect. Tap OK to continue.")
+                      .setPositiveButton("OK", (d, w) -> {
+                          Intent intent = new Intent(Intent.ACTION_VIEW,
+                              Uri.parse("market://details?id=" + WG_PACKAGE));
+                          intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                          try {
+                              startActivity(intent);
+                          } catch (Exception e) {
+                              Intent webIntent = new Intent(Intent.ACTION_VIEW,
+                                  Uri.parse("https://play.google.com/store/apps/details?id=" + WG_PACKAGE));
+                              startActivity(webIntent);
+                          }
+                      })
+                      .setNegativeButton("Cancel", null)
+                      .show();
+              }
+
+              private void importAndConnect() {
+                  try {
+                      // Write WireGuard config to file
+                      File configFile = new File(getExternalFilesDir(null), "britishsub.conf");
+                      InputStream is = getResources().openRawResource(R.raw.wg_config);
+                      FileOutputStream fos = new FileOutputStream(configFile);
+                      byte[] buffer = new byte[1024];
+                      int len;
+                      while ((len = is.read(buffer)) != -1) {
+                          fos.write(buffer, 0, len);
+                      }
+                      fos.close();
+                      is.close();
+
+                      // Import config into WireGuard
+                      Uri fileUri = Uri.fromFile(configFile);
+                      Intent intent = new Intent(Intent.ACTION_VIEW);
+                      intent.setDataAndType(fileUri, "application/octet-stream");
+                      intent.setPackage(WG_PACKAGE);
+                      intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                      startActivityForResult(intent, INSTALL_REQUEST);
+
+                  } catch (Exception e) {
+                      messageText.setText("Error: " + e.getMessage());
+                      messageText.setTextColor(Color.RED);
+                  }
+              }
+
+              private void disconnectVpn() {
+                  // Open WireGuard to disconnect
+                  Intent intent = getPackageManager().getLaunchIntentForPackage(WG_PACKAGE);
+                  if (intent != null) startActivity(intent);
+                  isConnected = false;
+                  connectBtn.setText("CONNECT");
+                  statusText.setText("● Disconnected");
+                  statusText.setTextColor(Color.RED);
               }
 
               @Override
               protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-                  if (requestCode == VPN_REQUEST_CODE && resultCode == RESULT_OK) {
-                      Intent intent = new Intent(this, BritishSubVpnService.class);
-                      intent.setAction(BritishSubVpnService.ACTION_CONNECT);
-                      startService(intent);
+                  if (requestCode == INSTALL_REQUEST) {
+                      isConnected = true;
+                      connectBtn.setText("DISCONNECT");
+                      statusText.setText("● Connected");
+                      statusText.setTextColor(Color.parseColor("#00D7FF"));
                   }
               }
 
@@ -413,11 +359,11 @@ jobs:
                           runOnUiThread(() -> {
                               try {
                                   if (json.getBoolean("approved")) {
-                                      messageText.setText("Activated until " + json.getString("expiry"));
+                                      messageText.setText("✅ Activated until " + json.getString("expiry"));
                                       messageText.setTextColor(Color.parseColor("#00D7FF"));
                                       connectLayout.setVisibility(android.view.View.VISIBLE);
                                   } else {
-                                      messageText.setText(json.getString("reason"));
+                                      messageText.setText("❌ " + json.getString("reason"));
                                       messageText.setTextColor(Color.RED);
                                       connectLayout.setVisibility(android.view.View.GONE);
                                   }
@@ -452,12 +398,6 @@ jobs:
                       }
                   } catch (Exception e) { e.printStackTrace(); }
                   return "02:00:00:00:00:00";
-              }
-
-              @Override
-              protected void onDestroy() {
-                  unregisterReceiver(vpnReceiver);
-                  super.onDestroy();
               }
           }
           EOF
