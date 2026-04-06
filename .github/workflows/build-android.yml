@@ -44,6 +44,7 @@ jobs:
         run: |
           mkdir -p britishsub-app/app/src/main/java/com/britishsub/vpn
           mkdir -p britishsub-app/app/src/main/res/values
+          mkdir -p britishsub-app/app/src/main/res/drawable
           mkdir -p britishsub-app/gradle/wrapper
 
           cat > britishsub-app/settings.gradle << 'EOF'
@@ -121,6 +122,60 @@ jobs:
           distributionUrl=https\://services.gradle.org/distributions/gradle-8.4-bin.zip
           zipStoreBase=GRADLE_USER_HOME
           zipStorePath=wrapper/dists
+          EOF
+
+          cat > britishsub-app/app/src/main/res/drawable/tv_btn_focused.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android"
+              android:shape="rectangle">
+              <solid android:color="#1A3A4A"/>
+              <stroke android:width="2dp" android:color="#00D7FF"/>
+              <corners android:radius="14dp"/>
+          </shape>
+          EOF
+
+          cat > britishsub-app/app/src/main/res/drawable/tv_btn_normal.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android"
+              android:shape="rectangle">
+              <solid android:color="#0D1520"/>
+              <stroke android:width="1dp" android:color="#1E2D3D"/>
+              <corners android:radius="14dp"/>
+          </shape>
+          EOF
+
+          cat > britishsub-app/app/src/main/res/drawable/tv_btn_selector.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <selector xmlns:android="http://schemas.android.com/apk/res/android">
+              <item android:state_focused="true" android:drawable="@drawable/tv_btn_focused"/>
+              <item android:drawable="@drawable/tv_btn_normal"/>
+          </selector>
+          EOF
+
+          cat > britishsub-app/app/src/main/res/drawable/tv_connect_focused.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android"
+              android:shape="rectangle">
+              <solid android:color="#00F0FF"/>
+              <corners android:radius="14dp"/>
+          </shape>
+          EOF
+
+          cat > britishsub-app/app/src/main/res/drawable/tv_connect_normal.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <shape xmlns:android="http://schemas.android.com/apk/res/android"
+              android:shape="rectangle">
+              <solid android:color="#00D7FF"/>
+              <corners android:radius="14dp"/>
+          </shape>
+          EOF
+
+          cat > britishsub-app/app/src/main/res/drawable/tv_connect_selector.xml << 'EOF'
+          <?xml version="1.0" encoding="utf-8"?>
+          <selector xmlns:android="http://schemas.android.com/apk/res/android">
+              <item android:state_focused="true" android:drawable="@drawable/tv_connect_focused"/>
+              <item android:drawable="@drawable/tv_connect_normal"/>
+          </selector>
           EOF
 
           cat > britishsub-app/app/src/main/AndroidManifest.xml << 'EOF'
@@ -258,6 +313,7 @@ jobs:
           import android.graphics.Color;
           import android.graphics.Typeface;
           import android.graphics.drawable.GradientDrawable;
+          import android.graphics.drawable.StateListDrawable;
           import android.net.VpnService;
           import android.os.Bundle;
           import android.os.Handler;
@@ -287,6 +343,7 @@ jobs:
               private TextView connectBtnText;
               private LinearLayout connectLayout, sidebarLayout;
               private View connectBtnWrapper;
+              private FrameLayout connectBtnFrame, refreshBtnFrame;
               private static final String API = "https://britishsub-vpn-api.mounirmakerz.workers.dev";
 
               private Handler timerHandler = new Handler();
@@ -331,68 +388,93 @@ jobs:
                       uiModeManager.getCurrentModeType() == Configuration.UI_MODE_TYPE_TELEVISION) {
                       return true;
                   }
-                  // Also check screen size - TV/large screens
                   int screenLayout = getResources().getConfiguration().screenLayout
                       & Configuration.SCREENLAYOUT_SIZE_MASK;
                   return screenLayout == Configuration.SCREENLAYOUT_SIZE_XLARGE;
               }
 
+              private GradientDrawable makeDrawable(String color, String stroke, int radius) {
+                  GradientDrawable d = new GradientDrawable();
+                  d.setShape(GradientDrawable.RECTANGLE);
+                  d.setCornerRadius(dp(radius));
+                  d.setColor(Color.parseColor(color));
+                  if (stroke != null) d.setStroke(dp(2), Color.parseColor(stroke));
+                  return d;
+              }
+
+              private StateListDrawable makeTVSelector(String normalColor, String focusColor,
+                                                        String normalStroke, String focusStroke) {
+                  StateListDrawable sld = new StateListDrawable();
+                  GradientDrawable focused = makeDrawable(focusColor, focusStroke, 14);
+                  GradientDrawable normal = makeDrawable(normalColor, normalStroke, 14);
+                  sld.addState(new int[]{android.R.attr.state_focused}, focused);
+                  sld.addState(new int[]{}, normal);
+                  return sld;
+              }
+
               private void buildTVLayout() {
-                  // TV: Horizontal layout - left panel (pulse + status) | right panel (info + buttons)
                   FrameLayout root = new FrameLayout(this);
                   root.setBackgroundColor(Color.parseColor("#0A0D1A"));
 
-                  // Main horizontal layout
-                  LinearLayout main = new LinearLayout(this);
-                  main.setOrientation(LinearLayout.HORIZONTAL);
-                  main.setBackgroundColor(Color.parseColor("#0A0D1A"));
+                  LinearLayout content = new LinearLayout(this);
+                  content.setOrientation(LinearLayout.VERTICAL);
+                  content.setLayoutParams(new FrameLayout.LayoutParams(
+                      FrameLayout.LayoutParams.MATCH_PARENT,
+                      FrameLayout.LayoutParams.MATCH_PARENT));
 
-                  // TOP BAR overlay
+                  // TOP BAR
                   LinearLayout topBar = new LinearLayout(this);
                   topBar.setOrientation(LinearLayout.HORIZONTAL);
                   topBar.setGravity(Gravity.CENTER_VERTICAL);
-                  topBar.setPadding(dp(40), dp(24), dp(40), dp(24));
-                  topBar.setBackgroundColor(Color.parseColor("#0A0D1A"));
+                  topBar.setPadding(dp(48), dp(24), dp(48), dp(24));
+                  topBar.setBackgroundColor(Color.parseColor("#080B16"));
 
                   ImageView logoImg = new ImageView(this);
                   try {
                       Bitmap bmp = BitmapFactory.decodeStream(getAssets().open("crown.png"));
                       logoImg.setImageBitmap(bmp);
                   } catch (Exception e) {}
-                  LinearLayout.LayoutParams imgP = new LinearLayout.LayoutParams(dp(36), dp(36));
-                  imgP.setMargins(0, 0, dp(12), 0);
+                  LinearLayout.LayoutParams imgP = new LinearLayout.LayoutParams(dp(40), dp(40));
+                  imgP.setMargins(0, 0, dp(14), 0);
                   logoImg.setLayoutParams(imgP);
                   logoImg.setScaleType(ImageView.ScaleType.FIT_CENTER);
 
                   TextView logoText = new TextView(this);
                   logoText.setText("BritishSub VPN");
                   logoText.setTextColor(Color.WHITE);
-                  logoText.setTextSize(22);
+                  logoText.setTextSize(24);
                   logoText.setTypeface(null, Typeface.BOLD);
-                  LinearLayout.LayoutParams ltP = new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
-                  logoText.setLayoutParams(ltP);
+                  logoText.setLayoutParams(new LinearLayout.LayoutParams(0,
+                      LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
                   topBar.addView(logoImg);
                   topBar.addView(logoText);
 
-                  // LEFT PANEL - Pulse animation
+                  // BODY - horizontal split
+                  LinearLayout body = new LinearLayout(this);
+                  body.setOrientation(LinearLayout.HORIZONTAL);
+                  body.setLayoutParams(new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+
+                  // LEFT - pulse + status + timer
                   LinearLayout leftPanel = new LinearLayout(this);
                   leftPanel.setOrientation(LinearLayout.VERTICAL);
                   leftPanel.setGravity(Gravity.CENTER);
-                  leftPanel.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
-                  leftPanel.setPadding(dp(60), dp(80), dp(40), dp(40));
+                  leftPanel.setLayoutParams(new LinearLayout.LayoutParams(0,
+                      LinearLayout.LayoutParams.MATCH_PARENT, 1f));
+                  leftPanel.setBackgroundColor(Color.parseColor("#0A0D1A"));
+                  leftPanel.setPadding(dp(60), dp(40), dp(40), dp(40));
 
                   FrameLayout pulseWrap = new FrameLayout(this);
-                  int pulseSize = dp(300);
-                  FrameLayout.LayoutParams pwp = new FrameLayout.LayoutParams(pulseSize, pulseSize);
-                  pwp.gravity = Gravity.CENTER;
+                  FrameLayout.LayoutParams pwp = new FrameLayout.LayoutParams(dp(280), dp(280));
+                  pwp.gravity = Gravity.CENTER_HORIZONTAL;
                   pulseWrap.setLayoutParams(pwp);
 
-                  ring1 = makeRing(dp(300), "#00D7FF14");
-                  ring2 = makeRing(dp(230), "#00D7FF22");
-                  ring3 = makeRing(dp(160), "#00D7FF33");
+                  ring1 = makeRing(dp(280), "#00D7FF14");
+                  ring2 = makeRing(dp(210), "#00D7FF22");
+                  ring3 = makeRing(dp(140), "#00D7FF33");
 
-                  FrameLayout.LayoutParams btnP = new FrameLayout.LayoutParams(dp(120), dp(120));
+                  FrameLayout.LayoutParams btnP = new FrameLayout.LayoutParams(dp(110), dp(110));
                   btnP.gravity = Gravity.CENTER;
                   powerBtn = new View(this);
                   powerBtn.setLayoutParams(btnP);
@@ -402,14 +484,14 @@ jobs:
                   btnBg.setStroke(dp(3), Color.parseColor("#00D7FF"));
                   powerBtn.setBackground(btnBg);
 
-                  FrameLayout.LayoutParams iconP = new FrameLayout.LayoutParams(dp(120), dp(120));
+                  FrameLayout.LayoutParams iconP = new FrameLayout.LayoutParams(dp(110), dp(110));
                   iconP.gravity = Gravity.CENTER;
                   TextView powerIcon = new TextView(this);
                   powerIcon.setLayoutParams(iconP);
                   powerIcon.setGravity(Gravity.CENTER);
                   powerIcon.setText("I");
                   powerIcon.setTextColor(Color.parseColor("#00D7FF"));
-                  powerIcon.setTextSize(42);
+                  powerIcon.setTextSize(44);
                   powerIcon.setTypeface(null, Typeface.BOLD);
 
                   pulseWrap.addView(ring1);
@@ -417,39 +499,39 @@ jobs:
                   pulseWrap.addView(ring3);
                   pulseWrap.addView(powerBtn);
                   pulseWrap.addView(powerIcon);
+                  leftPanel.addView(pulseWrap);
 
                   statusText = new TextView(this);
                   statusText.setText("DISCONNECTED");
                   statusText.setTextColor(Color.parseColor("#FF4444"));
-                  statusText.setTextSize(16);
+                  statusText.setTextSize(18);
                   statusText.setTypeface(null, Typeface.BOLD);
                   statusText.setLetterSpacing(0.15f);
                   statusText.setGravity(Gravity.CENTER);
-                  statusText.setPadding(0, dp(24), 0, dp(8));
+                  statusText.setPadding(0, dp(28), 0, dp(8));
+                  leftPanel.addView(statusText);
 
                   timerText = new TextView(this);
                   timerText.setText("00:00:00");
                   timerText.setTextColor(Color.parseColor("#333D52"));
-                  timerText.setTextSize(48);
+                  timerText.setTextSize(52);
                   timerText.setTypeface(null, Typeface.BOLD);
                   timerText.setGravity(Gravity.CENTER);
-
-                  leftPanel.addView(pulseWrap);
-                  leftPanel.addView(statusText);
                   leftPanel.addView(timerText);
 
-                  // RIGHT PANEL - Info + Controls
+                  // RIGHT - info + buttons
                   LinearLayout rightPanel = new LinearLayout(this);
                   rightPanel.setOrientation(LinearLayout.VERTICAL);
                   rightPanel.setGravity(Gravity.CENTER_VERTICAL);
-                  rightPanel.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
-                  rightPanel.setPadding(dp(40), dp(80), dp(60), dp(40));
+                  rightPanel.setLayoutParams(new LinearLayout.LayoutParams(0,
+                      LinearLayout.LayoutParams.MATCH_PARENT, 1f));
                   rightPanel.setBackgroundColor(Color.parseColor("#080B16"));
+                  rightPanel.setPadding(dp(48), dp(40), dp(60), dp(40));
 
                   // Info card
                   LinearLayout infoCard = new LinearLayout(this);
                   infoCard.setOrientation(LinearLayout.VERTICAL);
-                  infoCard.setPadding(dp(24), dp(24), dp(24), dp(24));
+                  infoCard.setPadding(dp(28), dp(24), dp(28), dp(24));
                   GradientDrawable cardBg = new GradientDrawable();
                   cardBg.setShape(GradientDrawable.RECTANGLE);
                   cardBg.setCornerRadius(dp(16));
@@ -458,17 +540,16 @@ jobs:
                   infoCard.setBackground(cardBg);
                   LinearLayout.LayoutParams cardP = new LinearLayout.LayoutParams(
                       LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                  cardP.setMargins(0, 0, 0, dp(24));
+                  cardP.setMargins(0, 0, 0, dp(20));
                   infoCard.setLayoutParams(cardP);
 
                   messageText = new TextView(this);
-                  messageText.setText("Press Refresh to check your activation");
+                  messageText.setText("Press OK on Refresh to check activation");
                   messageText.setTextColor(Color.parseColor("#4A5568"));
-                  messageText.setTextSize(14);
-                  messageText.setPadding(0, 0, 0, dp(16));
+                  messageText.setTextSize(15);
+                  messageText.setPadding(0, 0, 0, dp(20));
                   infoCard.addView(messageText);
 
-                  // Subscription row
                   TextView subLabel = makeTVLabel("SUBSCRIPTION");
                   expiryText = makeTVValue("Not activated");
                   infoCard.addView(subLabel);
@@ -482,7 +563,6 @@ jobs:
                   div.setBackgroundColor(Color.parseColor("#1E2D3D"));
                   infoCard.addView(div);
 
-                  // Device ID row
                   TextView macLabel = makeTVLabel("DEVICE ID");
                   macSidebarText = makeTVValue(macAddress);
                   infoCard.addView(macLabel);
@@ -490,49 +570,32 @@ jobs:
 
                   rightPanel.addView(infoCard);
 
-                  // Connect button
+                  // Connect button - TV focusable
                   connectLayout = new LinearLayout(this);
                   connectLayout.setOrientation(LinearLayout.VERTICAL);
                   connectLayout.setVisibility(View.GONE);
                   LinearLayout.LayoutParams clP = new LinearLayout.LayoutParams(
-                      LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
+                      LinearLayout.LayoutParams.MATCH_PARENT, dp(70));
                   clP.setMargins(0, 0, 0, dp(16));
                   connectLayout.setLayoutParams(clP);
 
-                  FrameLayout btnFrame = new FrameLayout(this);
-                  btnFrame.setLayoutParams(new LinearLayout.LayoutParams(
-                      LinearLayout.LayoutParams.MATCH_PARENT, dp(64)));
-
-                  connectBtnWrapper = new View(this);
-                  connectBtnWrapper.setLayoutParams(new FrameLayout.LayoutParams(
-                      FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-                  GradientDrawable cBg = new GradientDrawable();
-                  cBg.setShape(GradientDrawable.RECTANGLE);
-                  cBg.setCornerRadius(dp(14));
-                  cBg.setColor(Color.parseColor("#00D7FF"));
-                  connectBtnWrapper.setBackground(cBg);
-
-                  connectBtnText = new TextView(this);
-                  connectBtnText.setText("CONNECT");
-                  connectBtnText.setTextColor(Color.parseColor("#0A0D1A"));
-                  connectBtnText.setTextSize(16);
-                  connectBtnText.setTypeface(null, Typeface.BOLD);
-                  connectBtnText.setLetterSpacing(0.1f);
-                  connectBtnText.setGravity(Gravity.CENTER);
-                  connectBtnText.setLayoutParams(new FrameLayout.LayoutParams(
-                      FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-                  connectBtnText.setFocusable(true);
-
-                  btnFrame.addView(connectBtnWrapper);
-                  btnFrame.addView(connectBtnText);
-                  btnFrame.setFocusable(true);
-                  btnFrame.setOnClickListener(v -> {
+                  connectBtnFrame = new FrameLayout(this);
+                  connectBtnFrame.setLayoutParams(new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT,
+                      LinearLayout.LayoutParams.MATCH_PARENT));
+                  connectBtnFrame.setFocusable(true);
+                  connectBtnFrame.setFocusableInTouchMode(false);
+                  connectBtnFrame.setBackground(makeTVSelector(
+                      "#00D7FF", "#00F0FF", null, null));
+                  connectBtnFrame.setOnClickListener(v -> {
                       if (!connected && !connecting) startVpn();
                       else if (connected) stopVpn();
                   });
-                  btnFrame.setOnKeyListener((v, keyCode, event) -> {
+                  connectBtnFrame.setOnKeyListener((v, keyCode, event) -> {
                       if (event.getAction() == KeyEvent.ACTION_DOWN &&
-                          (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER)) {
+                          (keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                           keyCode == KeyEvent.KEYCODE_ENTER ||
+                           keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)) {
                           if (!connected && !connecting) startVpn();
                           else if (connected) stopVpn();
                           return true;
@@ -540,102 +603,84 @@ jobs:
                       return false;
                   });
 
-                  connectLayout.addView(btnFrame);
+                  connectBtnText = new TextView(this);
+                  connectBtnText.setText("CONNECT");
+                  connectBtnText.setTextColor(Color.parseColor("#0A0D1A"));
+                  connectBtnText.setTextSize(18);
+                  connectBtnText.setTypeface(null, Typeface.BOLD);
+                  connectBtnText.setLetterSpacing(0.1f);
+                  connectBtnText.setGravity(Gravity.CENTER);
+                  connectBtnText.setLayoutParams(new FrameLayout.LayoutParams(
+                      FrameLayout.LayoutParams.MATCH_PARENT,
+                      FrameLayout.LayoutParams.MATCH_PARENT));
+
+                  connectBtnWrapper = connectBtnFrame;
+                  connectBtnFrame.addView(connectBtnText);
+                  connectLayout.addView(connectBtnFrame);
                   rightPanel.addView(connectLayout);
 
-                  // Refresh button
-                  FrameLayout refreshFrame = new FrameLayout(this);
-                  refreshFrame.setLayoutParams(new LinearLayout.LayoutParams(
-                      LinearLayout.LayoutParams.MATCH_PARENT, dp(56)));
-                  LinearLayout.LayoutParams rfP = new LinearLayout.LayoutParams(
-                      LinearLayout.LayoutParams.MATCH_PARENT, dp(56));
-                  refreshFrame.setLayoutParams(rfP);
-
-                  View refreshBg = new View(this);
-                  refreshBg.setLayoutParams(new FrameLayout.LayoutParams(
-                      FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-                  GradientDrawable rBg = new GradientDrawable();
-                  rBg.setShape(GradientDrawable.RECTANGLE);
-                  rBg.setCornerRadius(dp(12));
-                  rBg.setColor(Color.parseColor("#0D1520"));
-                  rBg.setStroke(1, Color.parseColor("#1E2D3D"));
-                  refreshBg.setBackground(rBg);
-
-                  TextView refreshText = new TextView(this);
-                  refreshText.setText("REFRESH STATUS");
-                  refreshText.setTextColor(Color.parseColor("#00D7FF"));
-                  refreshText.setTextSize(14);
-                  refreshText.setTypeface(null, Typeface.BOLD);
-                  refreshText.setLetterSpacing(0.1f);
-                  refreshText.setGravity(Gravity.CENTER);
-                  refreshText.setLayoutParams(new FrameLayout.LayoutParams(
-                      FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-                  refreshText.setFocusable(true);
-
-                  refreshFrame.addView(refreshBg);
-                  refreshFrame.addView(refreshText);
-                  refreshFrame.setFocusable(true);
-                  refreshFrame.setOnClickListener(v -> checkActivation());
-                  refreshFrame.setOnKeyListener((v, keyCode, event) -> {
+                  // Refresh button - TV focusable
+                  refreshBtnFrame = new FrameLayout(this);
+                  refreshBtnFrame.setLayoutParams(new LinearLayout.LayoutParams(
+                      LinearLayout.LayoutParams.MATCH_PARENT, dp(62)));
+                  refreshBtnFrame.setFocusable(true);
+                  refreshBtnFrame.setFocusableInTouchMode(false);
+                  refreshBtnFrame.setBackground(makeTVSelector(
+                      "#0D1520", "#1A3A4A", "#1E2D3D", "#00D7FF"));
+                  refreshBtnFrame.setOnClickListener(v -> checkActivation());
+                  refreshBtnFrame.setOnKeyListener((v, keyCode, event) -> {
                       if (event.getAction() == KeyEvent.ACTION_DOWN &&
-                          (keyCode == KeyEvent.KEYCODE_DPAD_CENTER || keyCode == KeyEvent.KEYCODE_ENTER)) {
+                          (keyCode == KeyEvent.KEYCODE_DPAD_CENTER ||
+                           keyCode == KeyEvent.KEYCODE_ENTER ||
+                           keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)) {
                           checkActivation();
                           return true;
                       }
                       return false;
                   });
 
-                  rightPanel.addView(refreshFrame);
+                  TextView refreshText = new TextView(this);
+                  refreshText.setText("REFRESH STATUS");
+                  refreshText.setTextColor(Color.parseColor("#00D7FF"));
+                  refreshText.setTextSize(16);
+                  refreshText.setTypeface(null, Typeface.BOLD);
+                  refreshText.setLetterSpacing(0.1f);
+                  refreshText.setGravity(Gravity.CENTER);
+                  refreshText.setLayoutParams(new FrameLayout.LayoutParams(
+                      FrameLayout.LayoutParams.MATCH_PARENT,
+                      FrameLayout.LayoutParams.MATCH_PARENT));
+                  refreshBtnFrame.addView(refreshText);
+                  rightPanel.addView(refreshBtnFrame);
 
-                  // Support row
-                  LinearLayout supportRow = new LinearLayout(this);
-                  supportRow.setOrientation(LinearLayout.HORIZONTAL);
-                  supportRow.setGravity(Gravity.CENTER_VERTICAL);
+                  // Support text
                   LinearLayout.LayoutParams srP = new LinearLayout.LayoutParams(
                       LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT);
-                  srP.setMargins(0, dp(24), 0, 0);
-                  supportRow.setLayoutParams(srP);
+                  srP.setMargins(0, dp(20), 0, 0);
 
-                  TextView supportLabel = new TextView(this);
-                  supportLabel.setText("Support: ");
-                  supportLabel.setTextColor(Color.parseColor("#4A5568"));
-                  supportLabel.setTextSize(12);
-
-                  TextView supportEmail = new TextView(this);
-                  supportEmail.setText("support@getbritishsub.com");
-                  supportEmail.setTextColor(Color.parseColor("#00D7FF"));
-                  supportEmail.setTextSize(12);
-
-                  supportRow.addView(supportLabel);
-                  supportRow.addView(supportEmail);
-                  rightPanel.addView(supportRow);
-
-                  // Assemble
-                  LinearLayout content = new LinearLayout(this);
-                  content.setOrientation(LinearLayout.VERTICAL);
-                  content.setLayoutParams(new FrameLayout.LayoutParams(
-                      FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-
-                  LinearLayout body = new LinearLayout(this);
-                  body.setOrientation(LinearLayout.HORIZONTAL);
-                  body.setLayoutParams(new LinearLayout.LayoutParams(
-                      LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f));
+                  TextView supportText = new TextView(this);
+                  supportText.setText("Support: support@getbritishsub.com");
+                  supportText.setTextColor(Color.parseColor("#2A3A4A"));
+                  supportText.setTextSize(13);
+                  supportText.setLayoutParams(srP);
+                  rightPanel.addView(supportText);
 
                   body.addView(leftPanel);
                   body.addView(rightPanel);
-
                   content.addView(topBar);
                   content.addView(body);
-
                   root.addView(content);
+
                   setContentView(root);
+
+                  // Auto-focus refresh button on start
+                  refreshBtnFrame.post(() -> refreshBtnFrame.requestFocus());
               }
 
               private TextView makeTVLabel(String text) {
                   TextView t = new TextView(this);
                   t.setText(text);
                   t.setTextColor(Color.parseColor("#2A3A4A"));
-                  t.setTextSize(11);
+                  t.setTextSize(12);
                   t.setTypeface(null, Typeface.BOLD);
                   t.setLetterSpacing(0.15f);
                   LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -649,7 +694,7 @@ jobs:
                   TextView t = new TextView(this);
                   t.setText(text);
                   t.setTextColor(Color.WHITE);
-                  t.setTextSize(15);
+                  t.setTextSize(16);
                   t.setTypeface(null, Typeface.BOLD);
                   return t;
               }
@@ -673,7 +718,8 @@ jobs:
                   LinearLayout logoArea = new LinearLayout(this);
                   logoArea.setOrientation(LinearLayout.HORIZONTAL);
                   logoArea.setGravity(Gravity.CENTER);
-                  logoArea.setLayoutParams(new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+                  logoArea.setLayoutParams(new LinearLayout.LayoutParams(0,
+                      LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
                   ImageView logoImg = new ImageView(this);
                   try {
@@ -777,13 +823,14 @@ jobs:
                   connectLayout.setGravity(Gravity.CENTER_HORIZONTAL);
                   connectLayout.setVisibility(View.GONE);
 
-                  FrameLayout btnFrame = new FrameLayout(this);
-                  btnFrame.setLayoutParams(new LinearLayout.LayoutParams(
+                  connectBtnFrame = new FrameLayout(this);
+                  connectBtnFrame.setLayoutParams(new LinearLayout.LayoutParams(
                       LinearLayout.LayoutParams.MATCH_PARENT, dp(56)));
 
                   connectBtnWrapper = new View(this);
                   connectBtnWrapper.setLayoutParams(new FrameLayout.LayoutParams(
-                      FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+                      FrameLayout.LayoutParams.MATCH_PARENT,
+                      FrameLayout.LayoutParams.MATCH_PARENT));
                   GradientDrawable cBg = new GradientDrawable();
                   cBg.setShape(GradientDrawable.RECTANGLE);
                   cBg.setCornerRadius(dp(14));
@@ -798,11 +845,12 @@ jobs:
                   connectBtnText.setLetterSpacing(0.1f);
                   connectBtnText.setGravity(Gravity.CENTER);
                   connectBtnText.setLayoutParams(new FrameLayout.LayoutParams(
-                      FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+                      FrameLayout.LayoutParams.MATCH_PARENT,
+                      FrameLayout.LayoutParams.MATCH_PARENT));
 
-                  btnFrame.addView(connectBtnWrapper);
-                  btnFrame.addView(connectBtnText);
-                  btnFrame.setOnClickListener(v -> {
+                  connectBtnFrame.addView(connectBtnWrapper);
+                  connectBtnFrame.addView(connectBtnText);
+                  connectBtnFrame.setOnClickListener(v -> {
                       if (!connected && !connecting) startVpn();
                       else if (connected) stopVpn();
                   });
@@ -813,7 +861,7 @@ jobs:
                       }
                   });
 
-                  connectLayout.addView(btnFrame);
+                  connectLayout.addView(connectBtnFrame);
                   center.addView(connectLayout);
 
                   LinearLayout bottom = new LinearLayout(this);
@@ -827,7 +875,8 @@ jobs:
 
                   View refreshBg = new View(this);
                   refreshBg.setLayoutParams(new FrameLayout.LayoutParams(
-                      FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+                      FrameLayout.LayoutParams.MATCH_PARENT,
+                      FrameLayout.LayoutParams.MATCH_PARENT));
                   GradientDrawable rBg = new GradientDrawable();
                   rBg.setShape(GradientDrawable.RECTANGLE);
                   rBg.setCornerRadius(dp(12));
@@ -843,7 +892,8 @@ jobs:
                   refreshText.setLetterSpacing(0.1f);
                   refreshText.setGravity(Gravity.CENTER);
                   refreshText.setLayoutParams(new FrameLayout.LayoutParams(
-                      FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+                      FrameLayout.LayoutParams.MATCH_PARENT,
+                      FrameLayout.LayoutParams.MATCH_PARENT));
 
                   refreshFrame.addView(refreshBg);
                   refreshFrame.addView(refreshText);
@@ -1047,6 +1097,7 @@ jobs:
 
               private void startPulse() {
                   stopPulse();
+                  if (ring1 == null) return;
                   pulseSet = new AnimatorSet();
                   ObjectAnimator s1x = anim(ring1, "scaleX", 1f, 1.12f, 2200);
                   ObjectAnimator s1y = anim(ring1, "scaleY", 1f, 1.12f, 2200);
@@ -1085,12 +1136,17 @@ jobs:
                   timerText.setTextColor(Color.WHITE);
                   connectBtnText.setText("DISCONNECT");
                   connectBtnText.setTextColor(Color.parseColor("#FF4444"));
-                  GradientDrawable dBg = new GradientDrawable();
-                  dBg.setShape(GradientDrawable.RECTANGLE);
-                  dBg.setCornerRadius(dp(14));
-                  dBg.setColor(Color.parseColor("#1A0A0A"));
-                  dBg.setStroke(dp(2), Color.parseColor("#FF4444"));
-                  connectBtnWrapper.setBackground(dBg);
+                  if (isTV) {
+                      connectBtnFrame.setBackground(makeTVSelector(
+                          "#1A0A0A", "#2A0A0A", "#FF4444", "#FF6666"));
+                  } else {
+                      GradientDrawable dBg = new GradientDrawable();
+                      dBg.setShape(GradientDrawable.RECTANGLE);
+                      dBg.setCornerRadius(dp(14));
+                      dBg.setColor(Color.parseColor("#1A0A0A"));
+                      dBg.setStroke(dp(2), Color.parseColor("#FF4444"));
+                      connectBtnWrapper.setBackground(dBg);
+                  }
                   GradientDrawable pBg = new GradientDrawable();
                   pBg.setShape(GradientDrawable.OVAL);
                   pBg.setColor(Color.parseColor("#0A2020"));
@@ -1109,11 +1165,16 @@ jobs:
                   timerText.setText("00:00:00");
                   connectBtnText.setText("CONNECT");
                   connectBtnText.setTextColor(Color.parseColor("#0A0D1A"));
-                  GradientDrawable cBg = new GradientDrawable();
-                  cBg.setShape(GradientDrawable.RECTANGLE);
-                  cBg.setCornerRadius(dp(14));
-                  cBg.setColor(Color.parseColor("#00D7FF"));
-                  connectBtnWrapper.setBackground(cBg);
+                  if (isTV) {
+                      connectBtnFrame.setBackground(makeTVSelector(
+                          "#00D7FF", "#00F0FF", null, null));
+                  } else {
+                      GradientDrawable cBg = new GradientDrawable();
+                      cBg.setShape(GradientDrawable.RECTANGLE);
+                      cBg.setCornerRadius(dp(14));
+                      cBg.setColor(Color.parseColor("#00D7FF"));
+                      connectBtnWrapper.setBackground(cBg);
+                  }
                   GradientDrawable pBg = new GradientDrawable();
                   pBg.setShape(GradientDrawable.OVAL);
                   pBg.setColor(Color.parseColor("#111827"));
@@ -1130,19 +1191,11 @@ jobs:
                       statusText.setTextColor(Color.parseColor("#00D7FF"));
                       connectBtnText.setText("CONNECTING...");
                       connectBtnText.setTextColor(Color.parseColor("#00D7FF"));
-                      GradientDrawable cgBg = new GradientDrawable();
-                      cgBg.setShape(GradientDrawable.RECTANGLE);
-                      cgBg.setCornerRadius(dp(14));
-                      cgBg.setColor(Color.parseColor("#0A2030"));
-                      cgBg.setStroke(dp(1), Color.parseColor("#00D7FF44"));
-                      connectBtnWrapper.setBackground(cgBg);
                       startPulse();
                       Intent intent = VpnService.prepare(this);
                       if (intent != null) startActivityForResult(intent, VPN_REQUEST_CODE);
                       else onActivityResult(VPN_REQUEST_CODE, RESULT_OK, null);
-                  } catch (Exception e) {
-                      onDisconnected();
-                  }
+                  } catch (Exception e) { onDisconnected(); }
               }
 
               private void stopVpn() {
@@ -1179,6 +1232,9 @@ jobs:
                                       messageText.setTextColor(Color.parseColor("#00D7FF"));
                                       if (expiryText != null) expiryText.setText("Active until " + expiry);
                                       connectLayout.setVisibility(View.VISIBLE);
+                                      if (isTV && connectBtnFrame != null) {
+                                          connectBtnFrame.post(() -> connectBtnFrame.requestFocus());
+                                      }
                                   } else {
                                       messageText.setText(json.getString("reason"));
                                       messageText.setTextColor(Color.parseColor("#FF4444"));
@@ -1200,7 +1256,8 @@ jobs:
                   try {
                       List<NetworkInterface> interfaces = Collections.list(NetworkInterface.getNetworkInterfaces());
                       for (NetworkInterface nif : interfaces) {
-                          if (!nif.getName().equalsIgnoreCase("wlan0")) continue;
+                          if (!nif.getName().equalsIgnoreCase("wlan0") &&
+                              !nif.getName().equalsIgnoreCase("eth0")) continue;
                           byte[] mac = nif.getHardwareAddress();
                           if (mac == null) continue;
                           StringBuilder sb = new StringBuilder();
