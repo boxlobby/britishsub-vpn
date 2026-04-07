@@ -376,7 +376,7 @@ jobs:
                   IntentFilter f = new IntentFilter();
                   f.addAction("com.britishsub.vpn.VPN_CONNECTED");
                   f.addAction("com.britishsub.vpn.VPN_DISCONNECTED");
-                  registerReceiver(vpnReceiver, f);
+                  registerReceiver(vpnReceiver, f, Context.RECEIVER_NOT_EXPORTED);
 
                   if (isTV) buildTVLayout();
                   else buildMobileLayout();
